@@ -1,0 +1,18 @@
+[package]
+name = "cocaine"
+version = "0.1.2"
+authors = ["Evgeny Safronov <division494@gmail.com>"]
+description = "Cocaine Framework Rust"
+keywords = ["Cocaine"]
+license = "MIT"
+
+[dependencies]
+env_logger = "*"
+log = "*"
+rmp = "*"
+rmp-serde = "*"
+serde = "*"
+serde_macros = "*"
+# For worker side.
+argparse = "0.2"
+unix_socket = "0.4"
