@@ -385,13 +385,3 @@ impl Service {
     // Closes both sides of the TCP transport.
     // fn close(&mut self).join(self);
 }
-
-// Worker side:
-// 1. Register all events.
-// 2. Run - tx + rx.
-// -. Send handshake.
-// -. Every n seconds send heartbeat and wait for response.
-// 3. Loop in a separate thread and dispatch tasks.
-// -. ChannelId == 1 -> Control | RPC.
-// 4. 0 - heartbeat | Invoke | Write, etc.
-// 5.
