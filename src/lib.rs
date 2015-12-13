@@ -1,4 +1,3 @@
-#![feature(drain)]
 #![feature(slice_patterns)]
 
 #[macro_use] extern crate log;
@@ -12,7 +11,6 @@ extern crate argparse;
 extern crate unix_socket;
 
 pub mod raw;
-pub mod worker;
 
 mod protocol;
 mod error;
