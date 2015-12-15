@@ -1,12 +1,9 @@
-#![feature(ip_addr)]
-#![feature(read_exact)]
-
 extern crate cocaine;
 extern crate env_logger;
 extern crate rmp;
 
 use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv6Addr, SocketAddr, TcpListener};
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6, TcpListener};
 use std::sync::mpsc;
 use std::thread;
 
@@ -17,7 +14,8 @@ use cocaine::raw::Service;
 
 #[test]
 fn fail_connect() {
-    let endpoint = SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 0);
+    let ip = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1);
+    let endpoint = SocketAddr::V6(SocketAddrV6::new(ip, 0, 0, 0));
     let err = Service::connect(&endpoint).err().unwrap();
 
     match err {

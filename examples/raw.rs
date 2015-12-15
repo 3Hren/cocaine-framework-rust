@@ -1,8 +1,6 @@
-#![feature(ip_addr)]
-
 extern crate cocaine;
 
-use std::net::{SocketAddr, IpAddr, Ipv6Addr};
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
@@ -10,7 +8,8 @@ use std::thread;
 use cocaine::raw::Service;
 
 fn with_threads(concurrency: u32) {
-    let endpoint = SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10054);
+    let ip = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1);
+    let endpoint = SocketAddr::V6(SocketAddrV6::new(ip, 10054, 0, 0));
 
     // let service = Arc::new(Mutex::new(Service::connect(&endpoint).unwrap()));
     let mut threads = Vec::new();

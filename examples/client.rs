@@ -1,13 +1,12 @@
-#![feature(ip_addr)]
-
 extern crate cocaine;
 
-use std::net::{SocketAddr, IpAddr, Ipv6Addr};
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 
 use cocaine::raw::Service;
 
 fn main() {
-    let endpoint = SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 20000);
+    let ip = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1);
+    let endpoint = SocketAddr::V6(SocketAddrV6::new(ip, 20000, 0, 0));
 
     let mut service = Service::connect(&endpoint).unwrap();
 
