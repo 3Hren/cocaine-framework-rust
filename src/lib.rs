@@ -45,7 +45,7 @@ pub trait Dispatch {
 
 enum Event {
     // TODO: Switch to enum struct.
-    Call(oneshot::Sender<Result<Sender, Error>>, u64, Vec<u8>, Box<Dispatch>),
+    Call(oneshot::Sender<Result<u64, Error>>, u64, Vec<u8>, Box<Dispatch>),
     // TODO: Push {channel: u64 ty: u64, data: Vec<u8> },
 }
 
@@ -77,10 +77,13 @@ impl Reader {
     }
 }
 
+///
+/// The task is considered completed when all of the following conditions are met: no more
+/// events will be delivered from the event source, all pending events are sent and there are
+/// no more dispathes left.
 struct RawMultiplex<T> {
     id: u64,
     sock: T,
-    tx: mpsc::UnboundedSender<Event>,
     rx: mpsc::UnboundedReceiver<Event>,
 
     pending: VecDeque<Window<Vec<u8>>>,
@@ -108,7 +111,7 @@ impl<T: Read + Write> RawMultiplex<T> {
 
                 self.dispatch.insert(self.id, dispatch);
 
-                tx.complete(Ok(Sender::new(self.id, self.tx.clone())));
+                tx.complete(Ok(self.id));
             }
         }
     }
@@ -118,10 +121,6 @@ impl<T: Read + Write> Future for RawMultiplex<T> {
     type Item = ();
     type Error = io::Error;
 
-    ///
-    /// The task is considered completed when all of the following conditions are met: no more
-    /// events will be delivered from the event source, all pending events are sent and there are
-    /// no more dispathes left.
     fn poll(&mut self) -> Poll<(), io::Error> {
         // Poll incoming write/control events.
         // TODO: Replace with generic event source.
@@ -133,7 +132,11 @@ impl<T: Read + Write> Future for RawMultiplex<T> {
                 Ok(Ready(None)) | Err(()) => {
                     // No more control events will be received. However we must finish all pending
                     // socket operations.
-                    return Ok(Ready(()));
+                    if self.pending.is_empty() & self.dispatch.is_empty() {
+                        return Ok(Ready(()));
+                    } else {
+                        break;
+                    }
                 }
                 Ok(NotReady) => {
                     break;
@@ -147,6 +150,7 @@ impl<T: Read + Write> Future for RawMultiplex<T> {
             match self.sock.write(buf.as_ref()) {
                 Ok(nsize) if nsize == buf.as_ref().len() => {
                     debug!("written {} bytes", nsize);
+                    // TODO: Complete callback here.
                 }
                 Ok(nsize) => {
                     debug!("written {} bytes", nsize);
@@ -159,6 +163,8 @@ impl<T: Read + Write> Future for RawMultiplex<T> {
                     break;
                 }
                 Err(..) => {
+                    // TODO: Complete callback here.
+                    // TODO: Set state to |= CloseSend. Return with Error if state == CloseBoth.
                     // TODO: Probably we shouldn't return here even if writer part was shutted down
                     // to be able to read entirely.
                     unimplemented!();
@@ -212,7 +218,7 @@ impl<T: Read + Write> Future for RawMultiplex<T> {
                                     }
                                 }
                             }
-                            Err(ref err) if err.insufficient_bytes() => {
+                            Err(ref err) if err.kind() == ErrorKind::UnexpectedEof => {
                                 debug!("failed to decode frame - insufficient bytes");
                             }
                             Err(err) => {
@@ -289,13 +295,12 @@ impl Service_ {
 
             let service = Service_ {
                 peer: peer,
-                tx: Arc::new(Mutex::new(tx.clone())),
+                tx: Arc::new(Mutex::new(tx)),
             };
 
             let mx = RawMultiplex {
                 id: 0,
                 sock: sock,
-                tx: tx,
                 rx: rx,
                 pending: VecDeque::new(),
                 dispatch: HashMap::new(),
@@ -306,7 +311,10 @@ impl Service_ {
                 rd: Reader::new(),
             };
 
-            h.spawn(mx.map_err(|_| ()));
+            h.spawn(mx.then(|r| {
+                info!("completed I/O task: {:?}", r);
+                future::ok::<(), ()>(())
+            }));
 
             future::done(Ok(service))
         })
@@ -326,10 +334,11 @@ impl Service_ {
 
         // TODO: May be bottleneck.
         self.tx.lock().unwrap().send(Event::Call(tx, ty, buf, box dispatch)).unwrap();
+        let tx = self.tx.lock().unwrap().clone();
 
-        rx.then(|send| {
+        rx.then(move |send| {
             match send {
-                Ok(Ok(send)) => Ok(send),
+                Ok(Ok(id)) => Ok(Sender::new(id, tx)),
                 Ok(Err(err)) => Err(err),
                 Err(Canceled) => Err(Error::Canceled),
             }
@@ -511,7 +520,6 @@ impl Future for Multiplex {
                         let mut mx = RawMultiplex {
                             id: 0,
                             sock: sock,
-                            tx: tx,
                             rx: rx,
                             pending: VecDeque::new(),
                             dispatch: HashMap::new(),
@@ -612,10 +620,11 @@ impl Service {
 
         // TODO: May be bottleneck.
         self.tx.lock().unwrap().send(Event::Call(tx, ty, buf, box dispatch)).unwrap();
+        let tx = self.tx.lock().unwrap().clone();
 
         rx.then(|send| {
             match send {
-                Ok(Ok(send)) => Ok(send),
+                Ok(Ok(id)) => Ok(Sender::new(id, tx)),
                 Ok(Err(err)) => Err(err),
                 Err(Canceled) => Err(Error::Canceled),
             }

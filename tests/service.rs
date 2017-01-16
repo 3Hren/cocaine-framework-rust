@@ -1,6 +1,6 @@
 extern crate cocaine;
 
 #[test]
-fn main() {
+fn storage_read() {
     unimplemented!();
 }
