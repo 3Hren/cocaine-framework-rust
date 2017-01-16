@@ -44,15 +44,19 @@ pub trait Dispatch {
 }
 
 enum Event {
-    // TODO: Switch to enum struct.
-    Call(oneshot::Sender<Result<u64, Error>>, u64, Vec<u8>, Box<Dispatch>),
+    Call {
+        ty: u64,
+        data: Vec<u8>,
+        dispatch: Box<Dispatch>,
+        tx: oneshot::Sender<Result<u64, Error>>,
+    },
     // TODO: Push {channel: u64 ty: u64, data: Vec<u8> },
 }
 
 impl Debug for Event {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
-            Event::Call(_, ty, ..) => write!(f, "Event::Call(ty: {})", ty),
+            Event::Call { ty, .. } => write!(f, "Event::Call(ty: {})", ty),
         }
     }
 }
@@ -98,7 +102,7 @@ struct RawMultiplex<T> {
 impl<T: Read + Write> RawMultiplex<T> {
     fn add_event(&mut self, event: Event) {
         match event {
-            Event::Call(tx, ty, buf, dispatch) => {
+            Event::Call { ty, data, dispatch, tx } => {
                 self.id += 1;
 
                 let mut head = Vec::new();
@@ -107,7 +111,7 @@ impl<T: Read + Write> RawMultiplex<T> {
                 rmp::encode::write_uint(&mut head, ty).unwrap();
 
                 self.pending.push_back(Window::new(head));
-                self.pending.push_back(Window::new(buf));
+                self.pending.push_back(Window::new(data));
 
                 self.dispatch.insert(self.id, dispatch);
 
@@ -333,7 +337,9 @@ impl Service_ {
         let buf = to_vec(args).unwrap();
 
         // TODO: May be bottleneck.
-        self.tx.lock().unwrap().send(Event::Call(tx, ty, buf, box dispatch)).unwrap();
+        self.tx.lock().unwrap().send(
+            Event::Call { ty: ty, data: buf, dispatch: box dispatch, tx: tx }
+        ).unwrap();
         let tx = self.tx.lock().unwrap().clone();
 
         rx.then(move |send| {
@@ -619,7 +625,9 @@ impl Service {
         let buf = to_vec(args).unwrap();
 
         // TODO: May be bottleneck.
-        self.tx.lock().unwrap().send(Event::Call(tx, ty, buf, box dispatch)).unwrap();
+        self.tx.lock().unwrap().send(
+            Event::Call { ty: ty, data: buf, dispatch: box dispatch, tx: tx }
+        ).unwrap();
         let tx = self.tx.lock().unwrap().clone();
 
         rx.then(|send| {
