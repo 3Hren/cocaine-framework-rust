@@ -2,6 +2,8 @@
 #![feature(conservative_impl_trait)]
 
 #[macro_use]
+extern crate bitflags;
+#[macro_use]
 extern crate log;
 extern crate futures;
 extern crate serde;
@@ -12,10 +14,11 @@ extern crate tokio_core;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
-use std::fmt::{self, Debug, Display};
+use std::error;
+use std::fmt::{self, Debug, Display, Formatter};
 use std::io::{self, Cursor, ErrorKind, Read, Write};
-use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::ptr;
 
 use futures::{Async, Future, Poll, Stream};
 use futures::future;
@@ -35,19 +38,27 @@ use rmpv::decode::read_value_ref;
 
 use Async::*;
 
-mod net;
+// use self::message::Message;
 
-pub use net::connect;
+mod net;
+// mod message;
+
+use net::connect;
 
 pub trait Dispatch {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>>;
+
+    fn discard(self: Box<Self>, err: &Error) {
+        let _ = err;
+    }
 }
 
 enum Event {
+    // TODO: Connect/Disconnect.
     Call {
         ty: u64,
         data: Vec<u8>,
-        dispatch: Box<Dispatch>,
+        dispatch: Box<Dispatch + Send + Sync>,
         tx: oneshot::Sender<Result<u64, Error>>,
     },
     // TODO: Push {channel: u64 ty: u64, data: Vec<u8> },
@@ -61,45 +72,47 @@ impl Debug for Event {
     }
 }
 
-struct Reader {
+type Signal = oneshot::Sender<Result<u64, Error>>;
+
+///
+/// The task is considered completed when all of the following conditions are met: no more
+/// events will be delivered from the event source, all pending events are sent and there are
+/// no more dispathes left.
+///
+/// To match the `Future` contract this future resolves exactly once.
+#[must_use = "futures do nothing unless polled"]
+struct Multiplex<T> {
+    id: u64,
+    sock: T,
+
+    pending: VecDeque<(Window<Vec<u8>>, Option<(Signal, u64)>)>,
+    dispatches: HashMap<u64, Box<Dispatch>>,
+
     ring: Vec<u8>,
     rd_offset: usize,
     rx_offset: usize,
 }
 
-impl Reader {
-    fn new() -> Self {
-        Reader {
+impl<T> Drop for Multiplex<T> {
+    fn drop(&mut self) {
+        debug!("dropped multiplex");
+    }
+}
+
+impl<T: Read + Write> Multiplex<T> {
+    pub fn new(sock: T) -> Self {
+        Multiplex {
+            id: 0,
+            sock: sock,
+            pending: VecDeque::new(),
+            dispatches: HashMap::new(),
+
             ring: vec![0; 64],
             rd_offset: 0,
             rx_offset: 0,
         }
     }
 
-    fn read_from<R: Read>(&mut self, rd: &mut R) -> Result<ValueRef, io::Error> {
-        unimplemented!();
-    }
-}
-
-///
-/// The task is considered completed when all of the following conditions are met: no more
-/// events will be delivered from the event source, all pending events are sent and there are
-/// no more dispathes left.
-struct RawMultiplex<T> {
-    id: u64,
-    sock: T,
-    rx: mpsc::UnboundedReceiver<Event>,
-
-    pending: VecDeque<Window<Vec<u8>>>,
-    dispatch: HashMap<u64, Box<Dispatch>>,
-
-    ring: Vec<u8>,
-    rd_offset: usize,
-    rx_offset: usize,
-    rd: Reader,
-}
-
-impl<T: Read + Write> RawMultiplex<T> {
     fn add_event(&mut self, event: Event) {
         match event {
             Event::Call { ty, data, dispatch, tx } => {
@@ -110,107 +123,92 @@ impl<T: Read + Write> RawMultiplex<T> {
                 rmp::encode::write_uint(&mut head, self.id).unwrap();
                 rmp::encode::write_uint(&mut head, ty).unwrap();
 
-                self.pending.push_back(Window::new(head));
-                self.pending.push_back(Window::new(data));
+                self.pending.push_back((Window::new(head), None));
+                self.pending.push_back((Window::new(data), Some((tx, self.id))));
 
-                self.dispatch.insert(self.id, dispatch);
-
-                tx.complete(Ok(self.id));
+                self.dispatches.insert(self.id, dispatch);
             }
         }
     }
 }
 
-impl<T: Read + Write> Future for RawMultiplex<T> {
+impl<T: Read + Write> Future for Multiplex<T> {
     type Item = ();
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<(), io::Error> {
-        // Poll incoming write/control events.
-        // TODO: Replace with generic event source.
-        loop {
-            match self.rx.poll() {
-                Ok(Ready(Some(event))) => {
-                    self.add_event(event);
-                }
-                Ok(Ready(None)) | Err(()) => {
-                    // No more control events will be received. However we must finish all pending
-                    // socket operations.
-                    if self.pending.is_empty() & self.dispatch.is_empty() {
-                        return Ok(Ready(()));
-                    } else {
-                        break;
-                    }
-                }
-                Ok(NotReady) => {
-                    break;
-                }
-            }
-        }
-
-        // Flush unwritten.
+        // We guarantee that after this future is finished with I/O error it will have no new
+        // events. However to be able to gracefully finish all dispatches or sender obsersers we
+        // move ownership of this object into the event loop.
         // TODO: Add scatter/gather support sometimes.
-        while let Some(mut buf) = self.pending.pop_front() {
+        while let Some((mut buf, tx)) = self.pending.pop_front() {
             match self.sock.write(buf.as_ref()) {
                 Ok(nsize) if nsize == buf.as_ref().len() => {
                     debug!("written {} bytes", nsize);
-                    // TODO: Complete callback here.
+                    if let Some((tx, id)) = tx {
+                        tx.complete(Ok(id));
+                    }
                 }
                 Ok(nsize) => {
                     debug!("written {} bytes", nsize);
                     let from = buf.start();
                     buf.set_start(from + nsize);
-                    self.pending.push_front(buf);
+                    self.pending.push_front((buf, tx));
                 }
                 Err(ref err) if err.kind() == ErrorKind::WouldBlock => {
-                    self.pending.push_front(buf);
+                    self.pending.push_front((buf, tx));
                     break;
                 }
-                Err(..) => {
-                    // TODO: Complete callback here.
-                    // TODO: Set state to |= CloseSend. Return with Error if state == CloseBoth.
-                    // TODO: Probably we shouldn't return here even if writer part was shutted down
-                    // to be able to read entirely.
-                    unimplemented!();
+                Err(err) => {
+                    if let Some((tx, _id)) = tx {
+                        tx.complete(Err(err.into()));
+                    }
+                    // TODO: Toggle `CloseSend` flag.
                 }
             }
         }
 
         // Read.
         loop {
-            // TODO: Read only if dispatch.len() > 0.
+            // Read -> Decode -> ValueRef | Error.
+            //         Decode ::= Decode + validate.
             // match self.rd.read_from(&mut self.sock) {
-            //     Ok(data) => {}
-            //     Err(err) => {
-            //         // Either I/O or framing error.
-            //     }
+            //     // Ok(data) => {}
+            //     // Err(Io(ref err)) if err.kind() == WouldBlock => break,
+            //     // Err(Frame(ref err)) if err.kind() == UnexpectedEof) => {}
+            //     // Err(err) => {
+            //     //     // Either I/O or framing error.
+            //     // }
+            //     _ => unimplemented!()
             // }
 
             match self.sock.read(&mut self.ring[self.rd_offset..]) {
                 Ok(0) => {
                     debug!("EOF");
+                    // TODO: If there are dispatches - notify with UnexpectedEof. Then return UnexpectedEof.
+                    // Else if CloseSend - return with Ready(()).
                     break;
                 }
                 Ok(nread) => {
                     self.rd_offset += nread;
-                    debug!("read {} bytes; Ring {{ rx: {}, rd: {}, len: {} }}",
-                        nread, self.rx_offset, self.rd_offset, self.ring.len());
+                    debug!("read {} bytes; Ring {{ rx: {}, rd: {}, len: {} }}", nread, self.rx_offset, self.rd_offset, self.ring.len());
                     { // TODO: Stupid lifetimes!
                         let mut rdbuf = Cursor::new(&self.ring[self.rx_offset..self.rd_offset]);
                         match read_value_ref(&mut rdbuf) {
                             Ok(val) => {
                                 debug!("-> {}", val);
-                                self.rx_offset += rdbuf.position() as usize;
-
+                                // TODO: First check the performance difference between owning &
+                                // non-owning values.
                                 let id = val.index(0).as_u64().unwrap();
                                 let ty = val.index(1).as_u64().unwrap();
                                 let args = &val.index(2);
 
-                                match self.dispatch.remove(&id) {
+                                // TODO: Rewrite using `entry` API.
+                                match self.dispatches.remove(&id) {
                                     Some(dispatch) => {
                                         match dispatch.process(ty, args) {
                                             Some(dispatch) => {
-                                                self.dispatch.insert(id, dispatch);
+                                                self.dispatches.insert(id, dispatch);
                                             }
                                             None => {
                                                 debug!("revoked channel {}", id);
@@ -221,6 +219,8 @@ impl<T: Read + Write> Future for RawMultiplex<T> {
                                         warn!("dropped unexpected value");
                                     }
                                 }
+
+                                self.rx_offset += rdbuf.position() as usize;
                             }
                             Err(ref err) if err.kind() == ErrorKind::UnexpectedEof => {
                                 debug!("failed to decode frame - insufficient bytes");
@@ -236,7 +236,15 @@ impl<T: Read + Write> Future for RawMultiplex<T> {
                     let pending = self.rd_offset - self.rx_offset;
                     if self.rx_offset != 0 {
                         // TODO: Consider less often ring compactifying.
-                        self.ring.drain(0..self.rd_offset);
+                        // self.ring.drain(0..self.rd(x?)_offset);
+                        // + self.ring.resize(...);
+                        unsafe {
+                            ptr::copy(
+                                self.ring.as_ptr().offset(self.rx_offset as isize),
+                                self.ring.as_mut_ptr(),
+                                pending
+                            );
+                        }
 
                         self.rd_offset = pending;
                         self.rx_offset = 0;
@@ -254,9 +262,11 @@ impl<T: Read + Write> Future for RawMultiplex<T> {
                 Err(ref err) if err.kind() == ErrorKind::WouldBlock => {
                     break;
                 }
-                Err(..) => {
+                Err(err) => {
+                    error!("WTF: {:?}", err);
                     // TODO: Probably we shouldn't return here even if reader part was shut down
                     // to be able to write entirely.
+                    // TODO: Toggle `CloseRead` flag.
                     unimplemented!();
                 }
             }
@@ -277,78 +287,9 @@ impl Sender {
     }
 }
 
-#[derive(Clone)]
-pub struct Service_ {
-    peer: SocketAddr,
-    tx: Arc<Mutex<mpsc::UnboundedSender<Event>>>,
-}
-
-impl Service_ {
-    pub fn connect<E>(endpoints: E, handle: &Handle) -> impl Future<Item = Service_, Error = io::Error>
-        where E: IntoIterator<Item = SocketAddr>
-    {
-        let h = handle.clone();
-        connect(endpoints, handle).and_then(move |sock| {
-            let peer = match sock.peer_addr() {
-                Ok(peer) => peer,
-                Err(err) => return future::done(Err(err)),
-            };
-
-            info!("successfully connected to {}", peer);
-            let (tx, rx) = mpsc::unbounded();
-
-            let service = Service_ {
-                peer: peer,
-                tx: Arc::new(Mutex::new(tx)),
-            };
-
-            let mx = RawMultiplex {
-                id: 0,
-                sock: sock,
-                rx: rx,
-                pending: VecDeque::new(),
-                dispatch: HashMap::new(),
-
-                ring: vec![0; 64],
-                rd_offset: 0,
-                rx_offset: 0,
-                rd: Reader::new(),
-            };
-
-            h.spawn(mx.then(|r| {
-                info!("completed I/O task: {:?}", r);
-                future::ok::<(), ()>(())
-            }));
-
-            future::done(Ok(service))
-        })
-    }
-
-    pub fn peer_addr(&self) -> &SocketAddr {
-        &self.peer
-    }
-
-    pub fn call<T, D>(&self, ty: u64, args: &T, dispatch: D) -> impl Future<Item=Sender, Error=Error>
-        where T: Serialize,
-              D: Dispatch + 'static
-    {
-        let (tx, rx) = oneshot::channel();
-
-        let buf = to_vec(args).unwrap();
-
-        // TODO: May be bottleneck.
-        self.tx.lock().unwrap().send(
-            Event::Call { ty: ty, data: buf, dispatch: box dispatch, tx: tx }
-        ).unwrap();
-        let tx = self.tx.lock().unwrap().clone();
-
-        rx.then(move |send| {
-            match send {
-                Ok(Ok(id)) => Ok(Sender::new(id, tx)),
-                Ok(Err(err)) => Err(err),
-                Err(Canceled) => Err(Error::Canceled),
-            }
-        })
+impl Debug for Sender {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        fmt.debug_struct("Sender").field("id", &self.id).finish()
     }
 }
 
@@ -356,64 +297,46 @@ impl Service_ {
 pub enum Error {
     /// Operation has been aborted due to I/O error.
     Io(io::Error),
-    /// Service error with type, category and optional description.
+    /// Service error with category, type and optional description.
     Service(u64, u64, Option<String>),
     /// Operation has been canceled internally due to unstoppable forces.
     Canceled,
 }
 
-fn resolve(name: Cow<'static, str>, handle: &Handle) ->
-    impl Future<Item = Vec<SocketAddr>, Error = Error>
-{
-    use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
-
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10053);
-    Service_::connect(vec![addr], handle)
-        .map_err(Error::Io)
-        .and_then(move |service| {
-            let (tx, rx) = oneshot::channel();
-
-            struct ResolveDispatch {
-                tx: oneshot::Sender<Vec<SocketAddr>>,
-            };
-
-            impl Dispatch for ResolveDispatch {
-                fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-                    // TODO: Will be eliminated using enum match.
-                    match ty {
-                        0 => {
-                            // TODO: Will be eliminated using serde and high-level bindings.
-                            let mut vec = Vec::new();
-                            for addr in response.index(0).to_owned().as_array().unwrap() {
-                                vec.extend((addr[0].as_str().unwrap(), addr[1].as_u64().unwrap() as u16).to_socket_addrs().unwrap());
-                            }
-
-                            self.tx.complete(vec);
-                        }
-                        _ => {
-                            unimplemented!();
-                        }
-                    }
-
-                    None
-                }
+impl Error {
+    fn clone(&self) -> Self {
+        match *self {
+            Error::Io(ref err) => {
+                Error::Io(io::Error::new(err.kind(), error::Error::description(err)))
             }
+            Error::Service(cat, ty, ref desc) => Error::Service(cat, ty, desc.clone()),
+            Error::Canceled => Error::Canceled,
+        }
+    }
+}
 
-            let dispatch = ResolveDispatch {
-                tx: tx,
-            };
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error {
+        Error::Io(err)
+    }
+}
 
-            service.call(0, &vec![name], dispatch);
-
-            rx.map_err(|_| Error::Canceled)
-        })
+impl Display for Error {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
+        match *self {
+            Error::Io(ref err) => Display::fmt(&err, fmt),
+            Error::Service(.., id, None) => write!(fmt, "[{}] no description", id),
+            Error::Service(.., id, Some(ref desc)) => write!(fmt, "[{}]: {}", id, desc),
+            Error::Canceled => write!(fmt, "canceled"),
+        }
+    }
 }
 
 enum State {
     Disconnected,
     Resolving(Box<Future<Item=Vec<SocketAddr>, Error=Error>>),
     Connecting(Box<Future<Item=TcpStream, Error=io::Error>>),
-    Running(RawMultiplex<TcpStream>),
+    Running(Multiplex<TcpStream>),
 }
 
 impl Debug for State {
@@ -438,9 +361,90 @@ impl Display for State {
     }
 }
 
-struct Multiplex {
-    // Service name for resolving.
+trait Resolve {
+    fn resolve(&mut self, name: Cow<'static, str>, handle: &Handle) ->
+        Box<Future<Item = Vec<SocketAddr>, Error = Error>>;
+}
+
+struct MockResolver {
+    addrs: Vec<SocketAddr>,
+}
+
+impl Resolve for MockResolver {
+    fn resolve(&mut self, _name: Cow<'static, str>, _handle: &Handle) ->
+        Box<Future<Item = Vec<SocketAddr>, Error = Error>>
+    {
+        box future::ok(self.addrs.clone())
+    }
+}
+
+struct RealResolver;
+
+impl Resolve for RealResolver {
+    fn resolve(&mut self, name: Cow<'static, str>, handle: &Handle) ->
+        Box<Future<Item = Vec<SocketAddr>, Error = Error>>
+    {
+        let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053);
+        let resolver = MockResolver {
+            addrs: vec![addr],
+        };
+
+        let service = Service::with_resolver("locator", handle, resolver);
+
+        let (tx, rx) = oneshot::channel();
+
+        struct ResolveDispatch {
+            tx: oneshot::Sender<Result<Vec<SocketAddr>, Error>>,
+        };
+
+        impl Dispatch for ResolveDispatch {
+            fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
+                // TODO: Will be eliminated using enum match.
+                match ty {
+                    0 => {
+                        // TODO: Will be eliminated using serde and high-level bindings.
+                        let mut vec = Vec::new();
+                        for addr in response.index(0).to_owned().as_array().unwrap() {
+                            vec.extend((addr[0].as_str().unwrap(), addr[1].as_u64().unwrap() as u16).to_socket_addrs().unwrap());
+                        }
+
+                        self.tx.complete(Ok(vec));
+                    }
+                    _ => {
+                        unimplemented!();
+                    }
+                }
+
+                None
+            }
+
+            fn discard(self: Box<Self>, err: &Error) {
+                self.tx.complete(Err(err.clone()));
+            }
+        }
+
+        let dispatch = ResolveDispatch {
+            tx: tx,
+        };
+
+        service.call(0, &vec![name], dispatch);
+
+        box rx.then(|res| {
+            match res {
+                Ok(Ok(vec)) => Ok(vec),
+                Ok(Err(err)) => Err(err),
+                Err(oneshot::Canceled) => Err(Error::Canceled),
+            }
+        })
+    }
+}
+
+#[must_use = "futures do nothing unless polled"]
+struct Supervisor<R> {
+    // Service name for resolution and debugging.
     name: Cow<'static, str>,
+    // Resolver.
+    resolver: R,
     // State.
     state: Option<State>,
     // Event channel.
@@ -451,15 +455,12 @@ struct Multiplex {
     events: VecDeque<Event>,
 }
 
-impl Multiplex {
-}
-
-impl Future for Multiplex {
+impl<R: Resolve> Future for Supervisor<R> {
     type Item = ();
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<(), io::Error> {
-        debug!("poll multiplex, state: {}", self.state.as_ref().unwrap());
+        debug!("poll multiplex, state: {} [id={:p}]", self.state.as_ref().unwrap(), self);
 
         match self.state.take().expect("failed to extract internal state") {
             State::Disconnected => {
@@ -470,17 +471,17 @@ impl Future for Multiplex {
                         self.events.push_back(event);
                         debug!("pushed event into the queue, pending: {}", self.events.len());
 
-                        self.state = Some(State::Resolving(box resolve(self.name.clone(), &self.handle)));
+                        self.state = Some(State::Resolving(self.resolver.resolve(self.name.clone(), &self.handle)));
                         debug!("switched state from `disconnected` to `resolving`");
                         return self.poll();
                     }
                     Ok(Ready(None)) | Err(()) => {
-                        // Channel between user and us has been closed and we're disconnected.
+                        // Channel between user and us has been closed, and we are not connected.
                         info!("service state machine has been terminated");
                         return Ok(Ready(()));
                     }
                     Ok(NotReady) => {
-                        unreachable!();
+                        self.state = Some(State::Disconnected);
                     }
                 }
             }
@@ -509,32 +510,44 @@ impl Future for Multiplex {
                         self.state = Some(State::Resolving(future));
                     }
                     Err(err) => {
-                        for event in self.events.drain(..) {}
+                        error!("failed to resolve `{}` service: {}", self.name, err);
+                        // TODO: Nofify dispatches.
+                        for event in self.events.drain(..) {
+                            match event {
+                                Event::Call { dispatch, .. } => {
+                                    dispatch.discard(&err);
+                                }
+                            }
+                        }
+                        self.state = Some(State::Disconnected);
                     }
                 }
             }
             State::Connecting(mut future) => {
                 // TODO: Extract pending control events.
+                // ^^ UNTESTED
+                loop {
+                    match self.rx.poll() {
+                        Ok(Ready(Some(event))) => {
+                            self.events.push_back(event);
+                            debug!("pushed event into the queue, pending: {}", self.events.len());
+                        }
+                        Ok(..) | Err(()) => {
+                            // No new events will be delivered, because there are no more senders,
+                            // however we're ok with fire-and-forget strategy, so move forward.
+                            break;
+                        }
+                    }
+                }
+                // ^^ UNTESTED
+
                 match future.poll() {
                     Ok(Ready(sock)) => {
                         let peer = sock.peer_addr()?;
 
                         info!("successfully connected to {}", peer);
 
-                        let (tx, rx) = mpsc::unbounded();
-
-                        let mut mx = RawMultiplex {
-                            id: 0,
-                            sock: sock,
-                            rx: rx,
-                            pending: VecDeque::new(),
-                            dispatch: HashMap::new(),
-
-                            ring: vec![0; 64],
-                            rd_offset: 0,
-                            rx_offset: 0,
-                            rd: Reader::new(),
-                        };
+                        let mut mx = Multiplex::new(sock);
 
                         for event in self.events.drain(..) {
                             mx.add_event(event);
@@ -544,16 +557,39 @@ impl Future for Multiplex {
                         return self.poll();
                     }
                     Ok(NotReady) => {
+                        debug!("connection - in progress");
                         self.state = Some(State::Connecting(future));
-                        debug!("connecting - not ready");
                     }
-                    Err(..) => {
-                        debug!("connecting - canceled");
-                        // TODO: Make disconnected state or what?
+                    Err(err) => {
+                        error!("failed to connect to `{}` service: {}", self.name, err);
+                        let err = Error::Io(err);
+                        for event in self.events.drain(..) {
+                            match event {
+                                Event::Call { dispatch, .. } => {
+                                    dispatch.discard(&err);
+                                }
+                            }
+                        }
+                        self.state = Some(State::Disconnected);
                     }
                 }
             }
             State::Running(mut future) => {
+                // ^^ UNTESTED
+                loop {
+                    match self.rx.poll() {
+                        Ok(Ready(Some(event))) => {
+                            future.add_event(event);
+                        }
+                        Ok(..) | Err(()) => {
+                            // No new events will be delivered, because there are no more senders,
+                            // however we're ok with fire-and-forget strategy, so move forward.
+                            break;
+                        }
+                    }
+                }
+                // ^^ UNTESTED
+
                 // TODO: New events, socket events. Should be moved to `handle` when it's time to
                 // be disconnected to be able to handle pending send/recv events.
                 match future.poll() {
@@ -575,28 +611,44 @@ impl Future for Multiplex {
     }
 }
 
-/// Same as service, but provides name resolution and reconnecting before the next request after
+/// An entry point to the Cocaine Cloud.
+///
+/// The `Service` provides an ability to work with Cocaine services in a thread-safe manner with
+/// automatic name resolution and reconnection before the next request after any unexpected
 /// I/O error.
+///
+/// Internally it has an asynchronous state machine, which runs in an event loop associated with
+/// the handle given at construction time.
 #[derive(Clone)]
 pub struct Service {
     name: Cow<'static, str>,
-    tx: Arc<Mutex<mpsc::UnboundedSender<Event>>>,
+    tx: mpsc::UnboundedSender<Event>,
 }
 
 impl Service {
+    /// Constructs a new `Service` with a given name.
     ///
-    /// # Note
-    ///
-    /// Name resolution and connection will be established on demand.
+    /// This will not perform pre-connection until required. Both name resolution and connection
+    /// will be performed on demand, but you can call `connect()` method for fine-grained control.
     pub fn new<N>(name: N, handle: &Handle) -> Self
         where N: Into<Cow<'static, str>>
+    {
+        Service::with_resolver(name, handle, RealResolver)
+    }
+
+    // TODO: `pub fn with_endpoints(...)`.
+
+    fn with_resolver<N, R>(name: N, handle: &Handle, resolver: R) -> Self
+        where N: Into<Cow<'static, str>>,
+              R: Resolve + 'static
     {
         let name = name.into();
 
         let (tx, rx) = mpsc::unbounded();
 
-        let mx = Multiplex {
+        let mx = Supervisor {
             name: name.clone(),
+            resolver: resolver,
             state: Some(State::Disconnected),
             rx: rx.fuse(),
             handle: handle.clone(),
@@ -607,7 +659,7 @@ impl Service {
 
         Service {
             name: name,
-            tx: Arc::new(Mutex::new(tx.clone())),
+            tx: tx,
         }
     }
 
@@ -616,19 +668,23 @@ impl Service {
         &self.name
     }
 
+    // TODO: pub fn `connect(&self)`.
+
     pub fn call<T, D>(&self, ty: u64, args: &T, dispatch: D) -> impl Future<Item = Sender, Error = Error>
         where T: Serialize,
-              D: Dispatch + 'static
+              D: Dispatch + Send + Sync + 'static
     {
-        let (tx, rx) = oneshot::channel();
-
         let buf = to_vec(args).unwrap();
 
-        // TODO: May be bottleneck.
-        self.tx.lock().unwrap().send(
-            Event::Call { ty: ty, data: buf, dispatch: box dispatch, tx: tx }
-        ).unwrap();
-        let tx = self.tx.lock().unwrap().clone();
+        let (tx, rx) = oneshot::channel();
+        let event = Event::Call {
+            ty: ty,
+            data: buf,
+            dispatch: box dispatch,
+            tx: tx
+        };
+        self.tx.send(event).unwrap();
+        let tx = self.tx.clone();
 
         rx.then(|send| {
             match send {
@@ -638,4 +694,9 @@ impl Service {
             }
         })
     }
+}
+
+fn _assert_service_sync_send() {
+    fn _assert<T: Sync + Send>() {}
+    _assert::<Service>();
 }
