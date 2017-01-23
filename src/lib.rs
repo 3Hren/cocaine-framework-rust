@@ -11,13 +11,17 @@ extern crate rmp;
 extern crate rmp_serde;
 extern crate rmpv;
 extern crate tokio_core;
+extern crate nix;
+extern crate libc;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::error;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::io::{self, Cursor, ErrorKind, Read, Write};
+use std::mem;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::os::unix::io::AsRawFd;
 use std::ptr;
 
 use futures::{Async, Future, Poll, Stream};
@@ -42,6 +46,7 @@ use Async::*;
 
 mod net;
 // mod message;
+mod sys;
 
 use net::connect;
 
@@ -65,15 +70,107 @@ enum Event {
 }
 
 impl Debug for Event {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
-            Event::Call { ty, .. } => write!(f, "Event::Call(ty: {})", ty),
+            Event::Call { ty, ref data, .. } => {
+                fmt.debug_struct("Event::Call")
+                    .field("ty", &ty)
+                    .field("len", &data.len())
+                    .finish()
+            }
         }
     }
 }
 
-type Signal = oneshot::Sender<Result<u64, Error>>;
+struct MessageBuf {
+    head: Window<[u8; 32]>,
+    data: Window<Vec<u8>>,
+}
 
+impl MessageBuf {
+    fn new(id: u64, ty: u64, data: Vec<u8>) -> Result<Self, io::Error> {
+        let mut head = [0; 32];
+        let nlen = MessageBuf::encode_head(&mut head[..], id, ty)?;
+        let mut head = Window::new(head);
+        head.set_end(nlen);
+
+        let mbuf = MessageBuf {
+            head: head,
+            data: Window::new(data),
+        };
+
+        Ok(mbuf)
+    }
+
+    fn encode_head(head: &mut [u8], id: u64, ty: u64) -> Result<usize, io::Error> {
+        let mut cur = Cursor::new(&mut head[..]);
+        rmp::encode::write_array_len(&mut cur, 3)?;
+        rmp::encode::write_uint(&mut cur, id)?;
+        rmp::encode::write_uint(&mut cur, ty)?;
+
+        Ok(cur.position() as usize)
+    }
+
+    fn ulen(&self) -> usize {
+        self.head.as_ref().len() + self.data.as_ref().len()
+    }
+
+    /// # Panics
+    ///
+    /// This method will panic if `n` is out of bounds for the underlying slice or if it comes
+    /// after the end configured in this message.
+    fn eat(&mut self, mut num: usize) {
+        if num < self.head.as_ref().len() {
+            let from = self.head.start();
+            self.head.set_start(from + num);
+        } else {
+            // Consume head entirely.
+            num -= self.head.as_ref().len();
+            self.head.set_start(0);
+            self.head.set_end(0);
+
+            // Maybe partially consume data.
+            let from = self.data.start();
+            self.data.set_start(from + num);
+        }
+
+    }
+}
+
+enum Notify {
+    Call(u64, oneshot::Sender<Result<u64, Error>>),
+    // Push(oneshot::Sender<Result<(), Error>>),
+}
+
+impl Notify {
+    fn complete(self, val: Result<(), io::Error>) {
+        match self {
+            Notify::Call(id, tx) => tx.complete(val.and(Ok(id)).map_err(Error::Io)),
+        }
+    }
+}
+
+struct Message {
+    mbuf: MessageBuf,
+    notify: Notify,
+}
+
+impl Message {
+    /// Unwritten length.
+    fn ulen(&self) -> usize {
+        self.mbuf.ulen()
+    }
+
+    fn eat(&mut self, n: usize) {
+        self.mbuf.eat(n)
+    }
+
+    fn complete(self, val: Result<(), io::Error>) {
+        self.notify.complete(val)
+    }
+}
+
+/// Connection multiplexer.
 ///
 /// The task is considered completed when all of the following conditions are met: no more
 /// events will be delivered from the event source, all pending events are sent and there are
@@ -82,10 +179,11 @@ type Signal = oneshot::Sender<Result<u64, Error>>;
 /// To match the `Future` contract this future resolves exactly once.
 #[must_use = "futures do nothing unless polled"]
 struct Multiplex<T> {
+    // Request id counter.
     id: u64,
     sock: T,
 
-    pending: VecDeque<(Window<Vec<u8>>, Option<(Signal, u64)>)>,
+    pending: VecDeque<Message>,
     dispatches: HashMap<u64, Box<Dispatch>>,
 
     ring: Vec<u8>,
@@ -99,7 +197,9 @@ impl<T> Drop for Multiplex<T> {
     }
 }
 
-impl<T: Read + Write> Multiplex<T> {
+const IOVEC_MAX: usize = 64;
+
+impl<T: Read + Write + AsRawFd> Multiplex<T> {
     pub fn new(sock: T) -> Self {
         Multiplex {
             id: 0,
@@ -107,7 +207,7 @@ impl<T: Read + Write> Multiplex<T> {
             pending: VecDeque::new(),
             dispatches: HashMap::new(),
 
-            ring: vec![0; 64],
+            ring: vec![0; 4096],
             rd_offset: 0,
             rx_offset: 0,
         }
@@ -118,21 +218,35 @@ impl<T: Read + Write> Multiplex<T> {
             Event::Call { ty, data, dispatch, tx } => {
                 self.id += 1;
 
-                let mut head = Vec::new();
-                rmp::encode::write_array_len(&mut head, 3).unwrap();
-                rmp::encode::write_uint(&mut head, self.id).unwrap();
-                rmp::encode::write_uint(&mut head, ty).unwrap();
+                let mbuf = MessageBuf::new(self.id, ty, data).unwrap();
+                let notify = Notify::Call(self.id, tx);
+                let message = Message {
+                    mbuf: mbuf,
+                    notify: notify
+                };
 
-                self.pending.push_back((Window::new(head), None));
-                self.pending.push_back((Window::new(data), Some((tx, self.id))));
+                self.pending.push_back(message);
 
                 self.dispatches.insert(self.id, dispatch);
             }
         }
     }
+
+    fn send_all(&mut self) -> Result<usize, io::Error> {
+        let null = unsafe { mem::uninitialized() };
+        let mut size = 0;
+        let mut bufs = [null; IOVEC_MAX];
+        for (idx, message) in self.pending.iter().enumerate().take(IOVEC_MAX / 2) {
+            size += 2;
+            bufs[idx * 2] = &message.mbuf.head.as_ref()[..];
+            bufs[idx * 2 + 1] = &message.mbuf.data.as_ref()[..];
+        }
+
+        sys::sendmsg(self.sock.as_raw_fd(), &bufs[..size])
+    }
 }
 
-impl<T: Read + Write> Future for Multiplex<T> {
+impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
     type Item = ();
     type Error = io::Error;
 
@@ -140,30 +254,40 @@ impl<T: Read + Write> Future for Multiplex<T> {
         // We guarantee that after this future is finished with I/O error it will have no new
         // events. However to be able to gracefully finish all dispatches or sender obsersers we
         // move ownership of this object into the event loop.
-        // TODO: Add scatter/gather support sometimes.
-        while let Some((mut buf, tx)) = self.pending.pop_front() {
-            match self.sock.write(buf.as_ref()) {
-                Ok(nsize) if nsize == buf.as_ref().len() => {
-                    debug!("written {} bytes", nsize);
-                    if let Some((tx, id)) = tx {
-                        tx.complete(Ok(id));
+
+        loop {
+            if self.pending.is_empty() {
+                break;
+            }
+
+            debug!("sending {} pending buffer(s) of total {} byte(s) ...",
+                self.pending.len(),
+                self.pending.iter().fold(0, |s, ref x| s + x.ulen()));
+
+            match self.send_all() {
+                Ok(mut nlen) => {
+                    debug!("sent {} bytes", nlen);
+                    while nlen > 0 {
+                        // We're sure about unwrapping here, because messages are immutable.
+                        let bytes_left = self.pending.front().unwrap().ulen();
+
+                        if bytes_left > nlen {
+                            self.pending.front_mut().unwrap().eat(nlen);
+                            break;
+                        }
+
+                        nlen -= bytes_left;
+                        self.pending.pop_front().unwrap().complete(Ok(()));
                     }
                 }
-                Ok(nsize) => {
-                    debug!("written {} bytes", nsize);
-                    let from = buf.start();
-                    buf.set_start(from + nsize);
-                    self.pending.push_front((buf, tx));
-                }
                 Err(ref err) if err.kind() == ErrorKind::WouldBlock => {
-                    self.pending.push_front((buf, tx));
                     break;
                 }
                 Err(err) => {
-                    if let Some((tx, _id)) = tx {
-                        tx.complete(Err(err.into()));
+                    error!("failed to send bytes: {}", err);
+                    for message in self.pending.drain(..) {
+                        message.complete(Err(io::Error::last_os_error()));
                     }
-                    // TODO: Toggle `CloseSend` flag.
                 }
             }
         }
@@ -193,6 +317,7 @@ impl<T: Read + Write> Future for Multiplex<T> {
                     self.rd_offset += nread;
                     debug!("read {} bytes; Ring {{ rx: {}, rd: {}, len: {} }}", nread, self.rx_offset, self.rd_offset, self.ring.len());
                     { // TODO: Stupid lifetimes!
+                    loop {
                         let mut rdbuf = Cursor::new(&self.ring[self.rx_offset..self.rd_offset]);
                         match read_value_ref(&mut rdbuf) {
                             Ok(val) => {
@@ -224,6 +349,7 @@ impl<T: Read + Write> Future for Multiplex<T> {
                             }
                             Err(ref err) if err.kind() == ErrorKind::UnexpectedEof => {
                                 debug!("failed to decode frame - insufficient bytes");
+                                break;
                             }
                             Err(err) => {
                                 error!("failed to decode value from read buffer {:?}", err);
@@ -231,6 +357,7 @@ impl<T: Read + Write> Future for Multiplex<T> {
                                 unimplemented!();
                             }
                         }
+                    }
                     }
 
                     let pending = self.rd_offset - self.rx_offset;
