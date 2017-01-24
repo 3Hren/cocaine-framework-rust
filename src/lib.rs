@@ -1,6 +1,7 @@
 #![feature(box_syntax)]
 #![feature(conservative_impl_trait)]
 
+#[macro_use]
 extern crate bitflags;
 #[macro_use]
 extern crate log;
@@ -170,6 +171,15 @@ impl Message {
     }
 }
 
+
+bitflags! {
+    flags Shutdown: u8 {
+        const CLOSE_SEND = 0b01,
+        const CLOSE_RECV = 0b10,
+        const CLOSE_BOTH = CLOSE_SEND.bits | CLOSE_RECV.bits
+    }
+}
+
 /// Connection multiplexer.
 ///
 /// The task is considered completed when all of the following conditions are met: no more
@@ -182,6 +192,9 @@ struct Multiplex<T> {
     // Request id counter.
     id: u64,
     sock: T,
+
+    // Shutdown state.
+    state: Shutdown,
 
     pending: VecDeque<Message>,
     dispatches: HashMap<u64, Box<Dispatch>>,
@@ -204,6 +217,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
         Multiplex {
             id: 0,
             sock: sock,
+            state: Shutdown::empty(),
             pending: VecDeque::new(),
             dispatches: HashMap::new(),
 
@@ -245,23 +259,19 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
         // NOTE: Probably `sendmmsg` fits better, but it's linux > 3 only.
         sys::sendmsg(self.sock.as_raw_fd(), &bufs[..size])
     }
-}
 
-impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
-    type Item = ();
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<(), io::Error> {
-        // We guarantee that after this future is finished with I/O error it will have no new
-        // events. However to be able to gracefully finish all dispatches or sender obsersers we
-        // move ownership of this object into the event loop.
-
-        // TODO: Check whether we are still in sending state.
+    fn poll_send(&mut self) -> Poll<(), io::Error> {
         loop {
             // NOTE: For some unknown reasons `sendmsg` raises EMSGSIZE (40) error while trying to
             // send zero buffers.
             if self.pending.is_empty() {
-                break;
+                if self.state.contains(CLOSE_RECV) {
+                    // We're detached and live only for flushing pending messages. Here is the
+                    // right moment to finish.
+                    return Ok(Ready(()));
+                } else {
+                    break;
+                }
             }
 
             debug!("sending {} pending buffer(s) of total {} byte(s) ...",
@@ -292,8 +302,29 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
                     for message in self.pending.drain(..) {
                         message.complete(Err(io::Error::last_os_error()));
                     }
-                    // TODO: Switch off sending state.
+                    self.state.insert(CLOSE_SEND);
+                    return Err(err);
                 }
+            }
+        }
+
+        Ok(NotReady)
+    }
+}
+
+impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
+    type Item = ();
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Poll<(), Self::Error> {
+        // We guarantee that after this future is finished with I/O error it will have no new
+        // events. However to be able to gracefully finish all dispatches or sender obsersers we
+        // move ownership of this object into the event loop.
+        if !self.state.contains(CLOSE_SEND) {
+            match self.poll_send() {
+                Ok(Ready(())) => return Ok(Ready(())),
+                Ok(NotReady) => {}
+                Err(err) => return Err(err),
             }
         }
 
