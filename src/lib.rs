@@ -1,7 +1,6 @@
 #![feature(box_syntax)]
 #![feature(conservative_impl_trait)]
 
-#[macro_use]
 extern crate bitflags;
 #[macro_use]
 extern crate log;
@@ -104,6 +103,7 @@ impl MessageBuf {
 
     fn encode_head(head: &mut [u8], id: u64, ty: u64) -> Result<usize, io::Error> {
         let mut cur = Cursor::new(&mut head[..]);
+        // TODO: Support HPACK here.
         rmp::encode::write_array_len(&mut cur, 3)?;
         rmp::encode::write_uint(&mut cur, id)?;
         rmp::encode::write_uint(&mut cur, ty)?;
@@ -242,6 +242,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
             bufs[idx * 2 + 1] = &message.mbuf.data.as_ref()[..];
         }
 
+        // NOTE: Probably `sendmmsg` fits better, but it's linux > 3 only.
         sys::sendmsg(self.sock.as_raw_fd(), &bufs[..size])
     }
 }
@@ -255,7 +256,10 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
         // events. However to be able to gracefully finish all dispatches or sender obsersers we
         // move ownership of this object into the event loop.
 
+        // TODO: Check whether we are still in sending state.
         loop {
+            // NOTE: For some unknown reasons `sendmsg` raises EMSGSIZE (40) error while trying to
+            // send zero buffers.
             if self.pending.is_empty() {
                 break;
             }
@@ -288,24 +292,14 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
                     for message in self.pending.drain(..) {
                         message.complete(Err(io::Error::last_os_error()));
                     }
+                    // TODO: Switch off sending state.
                 }
             }
         }
 
         // Read.
+        // TODO: Check whether we are still in receiving state.
         loop {
-            // Read -> Decode -> ValueRef | Error.
-            //         Decode ::= Decode + validate.
-            // match self.rd.read_from(&mut self.sock) {
-            //     // Ok(data) => {}
-            //     // Err(Io(ref err)) if err.kind() == WouldBlock => break,
-            //     // Err(Frame(ref err)) if err.kind() == UnexpectedEof) => {}
-            //     // Err(err) => {
-            //     //     // Either I/O or framing error.
-            //     // }
-            //     _ => unimplemented!()
-            // }
-
             match self.sock.read(&mut self.ring[self.rd_offset..]) {
                 Ok(0) => {
                     debug!("EOF");
@@ -316,7 +310,9 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
                 Ok(nread) => {
                     self.rd_offset += nread;
                     debug!("read {} bytes; Ring {{ rx: {}, rd: {}, len: {} }}", nread, self.rx_offset, self.rd_offset, self.ring.len());
-                    { // TODO: Stupid lifetimes!
+
+                    // Drain the ring until all messages are decoded. Should always be broken with
+                    // unexpected EOF error if everything is ok.
                     loop {
                         let mut rdbuf = Cursor::new(&self.ring[self.rx_offset..self.rd_offset]);
                         match read_value_ref(&mut rdbuf) {
@@ -357,7 +353,6 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
                                 unimplemented!();
                             }
                         }
-                    }
                     }
 
                     let pending = self.rd_offset - self.rx_offset;
