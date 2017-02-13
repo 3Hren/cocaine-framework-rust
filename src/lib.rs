@@ -1,12 +1,11 @@
 #![feature(box_syntax)]
 #![feature(conservative_impl_trait)]
 
-#[macro_use]
-extern crate bitflags;
-#[macro_use]
-extern crate log;
+#[macro_use] extern crate bitflags;
+#[macro_use] extern crate log;
 extern crate futures;
 extern crate serde;
+// #[macro_use] extern crate serde_derive;
 extern crate rmp;
 extern crate rmp_serde;
 extern crate rmpv;
@@ -174,9 +173,10 @@ impl Message {
 
 bitflags! {
     flags Shutdown: u8 {
-        const CLOSE_SEND = 0b01,
-        const CLOSE_RECV = 0b10,
-        const CLOSE_BOTH = CLOSE_SEND.bits | CLOSE_RECV.bits
+        const CLOSE_SEND = 0b0001,
+        const CLOSE_RECV = 0b0010,
+        const CLOSE_USER = 0b0100,
+        const CLOSE = CLOSE_SEND.bits | CLOSE_RECV.bits | CLOSE_USER.bits,
     }
 }
 
@@ -192,6 +192,7 @@ struct Multiplex<T> {
     // Request id counter.
     id: u64,
     sock: T,
+    peer: SocketAddr,
 
     // Shutdown state.
     state: Shutdown,
@@ -206,17 +207,22 @@ struct Multiplex<T> {
 
 impl<T> Drop for Multiplex<T> {
     fn drop(&mut self) {
-        debug!("dropped multiplex");
+        info!("dropped multiplex with connection to {}", self.peer);
     }
 }
 
 const IOVEC_MAX: usize = 64;
 
+fn unexpected_eof() -> io::Error {
+    io::Error::new(ErrorKind::UnexpectedEof, "unexpected EOF")
+}
+
 impl<T: Read + Write + AsRawFd> Multiplex<T> {
-    pub fn new(sock: T) -> Self {
+    pub fn new(sock: T, peer: SocketAddr) -> Self {
         Multiplex {
             id: 0,
             sock: sock,
+            peer: peer,
             state: Shutdown::empty(),
             pending: VecDeque::new(),
             dispatches: HashMap::new(),
@@ -261,17 +267,17 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
     }
 
     fn poll_send(&mut self) -> Poll<(), io::Error> {
+        if self.pending.is_empty() && self.state.contains(CLOSE_RECV) {
+            // We're detached and live only until there are unflushed messages. Here is the right
+            // moment to finish the future.
+            return Ok(Ready(()));
+        }
+
         loop {
             // NOTE: For some unknown reasons `sendmsg` raises EMSGSIZE (40) error while trying to
             // send zero buffers.
             if self.pending.is_empty() {
-                if self.state.contains(CLOSE_RECV) {
-                    // We're detached and live only for flushing pending messages. Here is the
-                    // right moment to finish.
-                    return Ok(Ready(()));
-                } else {
-                    break;
-                }
+                break;
             }
 
             debug!("sending {} pending buffer(s) of total {} byte(s) ...",
@@ -302,7 +308,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                     for message in self.pending.drain(..) {
                         message.complete(Err(io::Error::last_os_error()));
                     }
-                    self.state.insert(CLOSE_SEND);
+                    self.state |= CLOSE_SEND;
                     return Err(err);
                 }
             }
@@ -310,33 +316,24 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
 
         Ok(NotReady)
     }
-}
 
-impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
-    type Item = ();
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<(), Self::Error> {
-        // We guarantee that after this future is finished with I/O error it will have no new
-        // events. However to be able to gracefully finish all dispatches or sender obsersers we
-        // move ownership of this object into the event loop.
-        if !self.state.contains(CLOSE_SEND) {
-            match self.poll_send() {
-                Ok(Ready(())) => return Ok(Ready(())),
-                Ok(NotReady) => {}
-                Err(err) => return Err(err),
-            }
-        }
-
-        // Read.
-        // TODO: Check whether we are still in receiving state.
+    fn poll_recv(&mut self) -> Poll<(), io::Error> {
         loop {
             match self.sock.read(&mut self.ring[self.rd_offset..]) {
                 Ok(0) => {
-                    debug!("EOF");
-                    // TODO: If there are dispatches - notify with UnexpectedEof. Then return UnexpectedEof.
-                    // Else if CloseSend - return with Ready(()).
-                    break;
+                    self.state |= CLOSE_RECV;
+
+                    if self.dispatches.is_empty() {
+                        debug!("EOF");
+                    } else {
+                        warn!("EOF while there are {} pending dispatch(es)", self.dispatches.len());
+                        for (.., dispatch) in self.dispatches.drain() {
+                            dispatch.discard(&Error::Io(unexpected_eof()));
+                        }
+                        return Err(unexpected_eof());
+                    }
+
+                    return Ok(Ready(()));
                 }
                 Ok(nread) => {
                     self.rd_offset += nread;
@@ -388,9 +385,6 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
 
                     let pending = self.rd_offset - self.rx_offset;
                     if self.rx_offset != 0 {
-                        // TODO: Consider less often ring compactifying.
-                        // self.ring.drain(0..self.rd(x?)_offset);
-                        // + self.ring.resize(...);
                         unsafe {
                             ptr::copy(
                                 self.ring.as_ptr().offset(self.rx_offset as isize),
@@ -406,8 +400,8 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
 
                     let len = self.ring.len();
                     if pending * 2 >= len {
-                        // The total size of unprocessed data in larger than half the size
-                        // of the ring, so grow the ring in order to accomodate more data.
+                        // The total size of unprocessed data in larger than half the size of the
+                        // ring, so grow the ring in order to accomodate more data.
                         self.ring.resize(len * 2, 0);
                         debug!("resized rdbuf to {}", self.ring.len());
                     }
@@ -426,6 +420,39 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
         }
 
         Ok(NotReady)
+    }
+}
+
+impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
+    type Item = ();
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Poll<(), Self::Error> {
+        // We guarantee that after this future is finished with I/O error it will have no new
+        // events. However to be able to gracefully finish all dispatches or sender obsersers we
+        // move ownership of this object into the event loop.
+
+        if !self.state.contains(CLOSE_SEND) {
+            match self.poll_send() {
+                Ok(Ready(())) => return Ok(Ready(())),
+                Ok(NotReady) => {}
+                Err(err) => return Err(err),
+            }
+        }
+
+        if !self.state.contains(CLOSE_RECV) {
+            match self.poll_recv() {
+                Ok(Ready(())) => return Ok(Ready(())),
+                Ok(NotReady) => {}
+                Err(err) => return Err(err),
+            }
+        }
+
+        if self.state.contains(CLOSE_USER) && self.pending.is_empty() && self.dispatches.is_empty() {
+            Ok(Ready(()))
+        } else {
+            Ok(NotReady)
+        }
     }
 }
 
@@ -677,8 +704,6 @@ impl<R: Resolve> Future for Supervisor<R> {
                 }
             }
             State::Connecting(mut future) => {
-                // TODO: Extract pending control events.
-                // ^^ UNTESTED
                 loop {
                     match self.rx.poll() {
                         Ok(Ready(Some(event))) => {
@@ -692,7 +717,6 @@ impl<R: Resolve> Future for Supervisor<R> {
                         }
                     }
                 }
-                // ^^ UNTESTED
 
                 match future.poll() {
                     Ok(Ready(sock)) => {
@@ -700,7 +724,7 @@ impl<R: Resolve> Future for Supervisor<R> {
 
                         info!("successfully connected to {}", peer);
 
-                        let mut mx = Multiplex::new(sock);
+                        let mut mx = Multiplex::new(sock, peer);
 
                         for event in self.events.drain(..) {
                             mx.add_event(event);
@@ -728,16 +752,23 @@ impl<R: Resolve> Future for Supervisor<R> {
                 }
             }
             State::Running(mut future) => {
-                // ^^ UNTESTED
                 loop {
                     match self.rx.poll() {
                         Ok(Ready(Some(event))) => {
                             future.add_event(event);
                         }
-                        Ok(..) | Err(()) => {
-                            // No new events will be delivered, because there are no more senders,
-                            // however we're ok with fire-and-forget strategy, so move forward.
+                        Ok(NotReady) => {
                             break;
+                        }
+                        Ok(Ready(None)) | Err(()) => {
+                            // No more user input.
+                            if future.pending.len() > 0 || future.dispatches.len() > 0 {
+                                debug!("detached multiplex with {} messages and {} dispatches",
+                                    future.pending.len(), future.dispatches.len());
+                                future.state |= CLOSE_USER;
+                                self.handle.spawn(future.map_err(|_err| ()));
+                            }
+                            return Ok(Ready(()));
                         }
                     }
                 }
