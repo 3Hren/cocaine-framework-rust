@@ -41,12 +41,11 @@ use rmpv::decode::read_value_ref;
 
 use Async::*;
 
-// use self::message::Message;
-
+mod frame;
 mod net;
-// mod message;
 mod sys;
 
+use self::frame::Frame;
 use net::connect;
 
 pub trait Dispatch {
@@ -176,7 +175,26 @@ bitflags! {
         const CLOSE_SEND = 0b0001,
         const CLOSE_RECV = 0b0010,
         const CLOSE_USER = 0b0100,
-        const CLOSE = CLOSE_SEND.bits | CLOSE_RECV.bits | CLOSE_USER.bits,
+    }
+}
+
+#[derive(Debug)]
+enum MultiplexError {
+    /// Operation has been aborted due to I/O error.
+    Io(io::Error),
+    /// Framing error.
+    InvalidFraming(frame::Error),
+}
+
+impl From<io::Error> for MultiplexError {
+    fn from(err: io::Error) -> Self {
+        MultiplexError::Io(err)
+    }
+}
+
+impl From<frame::Error> for MultiplexError {
+    fn from(err: frame::Error) -> Self {
+        MultiplexError::InvalidFraming(err)
     }
 }
 
@@ -266,7 +284,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
         sys::sendmsg(self.sock.as_raw_fd(), &bufs[..size])
     }
 
-    fn poll_send(&mut self) -> Poll<(), io::Error> {
+    fn poll_send(&mut self) -> Poll<(), MultiplexError> {
         if self.pending.is_empty() && self.state.contains(CLOSE_RECV) {
             // We're detached and live only until there are unflushed messages. Here is the right
             // moment to finish the future.
@@ -309,7 +327,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                         message.complete(Err(io::Error::last_os_error()));
                     }
                     self.state |= CLOSE_SEND;
-                    return Err(err);
+                    return Err(err.into());
                 }
             }
         }
@@ -317,7 +335,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
         Ok(NotReady)
     }
 
-    fn poll_recv(&mut self) -> Poll<(), io::Error> {
+    fn poll_recv(&mut self) -> Poll<(), MultiplexError> {
         loop {
             match self.sock.read(&mut self.ring[self.rd_offset..]) {
                 Ok(0) => {
@@ -330,7 +348,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                         for (.., dispatch) in self.dispatches.drain() {
                             dispatch.discard(&Error::Io(unexpected_eof()));
                         }
-                        return Err(unexpected_eof());
+                        return Err(unexpected_eof().into());
                     }
 
                     return Ok(Ready(()));
@@ -344,13 +362,14 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                     loop {
                         let mut rdbuf = Cursor::new(&self.ring[self.rx_offset..self.rd_offset]);
                         match read_value_ref(&mut rdbuf) {
-                            Ok(val) => {
-                                debug!("-> {}", val);
+                            Ok(raw) => {
+                                let frame = Frame::new(&raw)?;
+                                debug!("-> {}", frame);
                                 // TODO: First check the performance difference between owning &
                                 // non-owning values.
-                                let id = val.index(0).as_u64().unwrap();
-                                let ty = val.index(1).as_u64().unwrap();
-                                let args = &val.index(2);
+                                let id = frame.id();
+                                let ty = frame.ty();
+                                let args = frame.args();
 
                                 // TODO: Rewrite using `entry` API.
                                 match self.dispatches.remove(&id) {
@@ -425,7 +444,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
 
 impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
     type Item = ();
-    type Error = io::Error;
+    type Error = MultiplexError;
 
     fn poll(&mut self) -> Poll<(), Self::Error> {
         // We guarantee that after this future is finished with I/O error it will have no new
@@ -477,6 +496,8 @@ impl Debug for Sender {
 pub enum Error {
     /// Operation has been aborted due to I/O error.
     Io(io::Error),
+    /// Framing error.
+    InvalidFraming(frame::Error),
     /// Service error with category, type and optional description.
     Service(u64, u64, Option<String>),
     /// Operation has been canceled internally due to unstoppable forces.
@@ -488,6 +509,9 @@ impl Error {
         match *self {
             Error::Io(ref err) => {
                 Error::Io(io::Error::new(err.kind(), error::Error::description(err)))
+            }
+            Error::InvalidFraming(ref err) => {
+                Error::InvalidFraming(err.clone())
             }
             Error::Service(cat, ty, ref desc) => Error::Service(cat, ty, desc.clone()),
             Error::Canceled => Error::Canceled,
@@ -501,10 +525,17 @@ impl From<io::Error> for Error {
     }
 }
 
+impl From<frame::Error> for Error {
+    fn from(err: frame::Error) -> Error {
+        Error::InvalidFraming(err)
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
         match *self {
             Error::Io(ref err) => Display::fmt(&err, fmt),
+            Error::InvalidFraming(ref err) => Display::fmt(&err, fmt),
             Error::Service(.., id, None) => write!(fmt, "[{}] no description", id),
             Error::Service(.., id, Some(ref desc)) => write!(fmt, "[{}]: {}", id, desc),
             Error::Canceled => write!(fmt, "canceled"),
@@ -637,9 +668,9 @@ struct Supervisor<R> {
 
 impl<R: Resolve> Future for Supervisor<R> {
     type Item = ();
-    type Error = io::Error;
+    type Error = MultiplexError;
 
-    fn poll(&mut self) -> Poll<(), io::Error> {
+    fn poll(&mut self) -> Poll<(), Self::Error> {
         debug!("poll multiplex, state: {} [id={:p}]", self.state.as_ref().unwrap(), self);
 
         match self.state.take().expect("failed to extract internal state") {
