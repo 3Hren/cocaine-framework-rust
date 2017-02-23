@@ -1,17 +1,44 @@
+use std::error;
 use std::fmt::{self, Display, Formatter};
 use rmpv::ValueRef;
 
+/// Framing error.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Error {
-    TypeMismatch,
+    /// Frame must be an array.
+    InvalidFrameType,
+    /// Frame size must be 3 or 4.
     SizeMismatch(usize),
+    /// Channel id type must be an u64.
+    SpanTypeMismatch,
+    /// Type id type must be an u64.
+    TypeTypeMismatch,
+}
+
+impl error::Error for Error {
+    fn description(&self) -> &str {
+        match *self {
+            Error::InvalidFrameType => "protocol frame has invalid type",
+            Error::SizeMismatch(..) => "protocol frame has invalid size, expected 3 or 4",
+            Error::SpanTypeMismatch => "span field has invalid type",
+            Error::TypeTypeMismatch => "type field has invalid type",
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
 }
 
 impl Display for Error {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
         match *self {
-            Error::TypeMismatch => write!(fmt, "type mismatch"),
-            Error::SizeMismatch(size) => write!(fmt, "size mismatch, expected 3 or 4, found {}", size),
+            Error::InvalidFrameType => "protocol frame has invalid type, must be an array".fmt(fmt),
+            Error::SizeMismatch(size) => {
+                write!(fmt, "protocol frame has invalid size, expected 3 or 4, found {}", size)
+            }
+            Error::SpanTypeMismatch => "span field has invalid type".fmt(fmt),
+            Error::TypeTypeMismatch => "type field has invalid type".fmt(fmt),
         }
     }
 }
@@ -37,9 +64,9 @@ impl<'a, 'b> Frame<'a, 'b> {
         if let &ValueRef::Array(ref vec) = frame {
             match vec.len() {
                 3 => {
-                    let id = vec[0].as_u64().ok_or(Error::TypeMismatch)?;
-                    let ty = vec[1].as_u64().ok_or(Error::TypeMismatch)?;
                     let args = &vec[2];
+                    let id = vec[0].as_u64().ok_or(Error::SpanTypeMismatch)?;
+                    let ty = vec[1].as_u64().ok_or(Error::TypeTypeMismatch)?;
 
                     let message = Frame {
                         id: id,
@@ -51,10 +78,10 @@ impl<'a, 'b> Frame<'a, 'b> {
                     Ok(message)
                 }
                 4 => {
-                    let id = vec[0].as_u64().ok_or(Error::TypeMismatch)?;
-                    let ty = vec[1].as_u64().ok_or(Error::TypeMismatch)?;
                     let args = &vec[2];
                     let meta = &vec[3];
+                    let id = vec[0].as_u64().ok_or(Error::SpanTypeMismatch)?;
+                    let ty = vec[1].as_u64().ok_or(Error::TypeTypeMismatch)?;
 
                     let message = Frame {
                         id: id,
@@ -68,7 +95,7 @@ impl<'a, 'b> Frame<'a, 'b> {
                 len => Err(Error::SizeMismatch(len)),
             }
         } else {
-            Err(Error::TypeMismatch)
+            Err(Error::InvalidFrameType)
         }
     }
 
