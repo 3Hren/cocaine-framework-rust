@@ -19,7 +19,7 @@ use std::error;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::io::{self, Cursor, ErrorKind, Read, Write};
 use std::mem;
-use std::net::{IpAddr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::os::unix::io::AsRawFd;
 use std::ptr;
 
@@ -727,7 +727,7 @@ impl Resolve for RealResolver {
                         let info: ResolveInfo = rmpv::ext::from_value(response.to_owned()).unwrap();
                         let mut endpoints = Vec::with_capacity(info.endpoints.len());
                         for (host, port) in info.endpoints {
-                            endpoints.extend((host, port).to_socket_addrs().unwrap());
+                            endpoints.push(SocketAddr::new(host, port));
                         }
 
                         self.tx.complete(Ok(endpoints));
