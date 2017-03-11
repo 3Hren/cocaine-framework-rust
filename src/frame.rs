@@ -64,9 +64,9 @@ impl<'a, 'b> Frame<'a, 'b> {
         if let &ValueRef::Array(ref vec) = frame {
             match vec.len() {
                 3 => {
-                    let args = &vec[2];
                     let id = vec[0].as_u64().ok_or(Error::SpanTypeMismatch)?;
                     let ty = vec[1].as_u64().ok_or(Error::TypeTypeMismatch)?;
+                    let args = &vec[2];
 
                     let message = Frame {
                         id: id,
@@ -78,10 +78,10 @@ impl<'a, 'b> Frame<'a, 'b> {
                     Ok(message)
                 }
                 4 => {
-                    let args = &vec[2];
-                    let meta = &vec[3];
                     let id = vec[0].as_u64().ok_or(Error::SpanTypeMismatch)?;
                     let ty = vec[1].as_u64().ok_or(Error::TypeTypeMismatch)?;
+                    let args = &vec[2];
+                    let meta = &vec[3];
 
                     let message = Frame {
                         id: id,

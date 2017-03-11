@@ -11,11 +11,11 @@ bitflags = "0.7"
 log = "0.3"
 rmp = { version = "0.8", path = "../rmp/rmp" }
 rmp-serde = { version = "0.12", path = "../rmp/rmp-serde" }
-rmpv = { version = "0.2", path = "../rmp/rmpv" }
+rmpv = { version = "0.3", path = "../rmp/rmpv", features = ["with-serde"] }
 serde = "0.9"
 serde_derive = "0.9"
 futures = "0.1"
-tokio-core = { git = "https://github.com/tokio-rs/tokio-core" }
+tokio-core = "0.1"
 nix = "*"
 libc = "*"
 

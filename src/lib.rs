@@ -5,9 +5,9 @@
 #[macro_use] extern crate log;
 extern crate futures;
 extern crate serde;
-// #[macro_use] extern crate serde_derive;
+#[macro_use] extern crate serde_derive;
 extern crate rmp;
-extern crate rmp_serde;
+extern crate rmp_serde as rmps;
 extern crate rmpv;
 extern crate tokio_core;
 extern crate nix;
@@ -35,7 +35,6 @@ use tokio_core::io::Window;
 use tokio_core::net::TcpStream;
 use tokio_core::reactor::Handle;
 
-use rmp_serde::to_vec;
 use rmpv::ValueRef;
 use rmpv::decode::read_value_ref;
 
@@ -61,10 +60,14 @@ enum Event {
     Call {
         ty: u64,
         data: Vec<u8>,
-        dispatch: Box<Dispatch + Send + Sync>,
+        dispatch: Box<Dispatch + Send>,
         tx: oneshot::Sender<Result<u64, Error>>,
     },
-    // TODO: Push {channel: u64 ty: u64, data: Vec<u8> },
+    Push {
+        id: u64,
+        ty: u64,
+        data: Vec<u8>,
+    },
 }
 
 impl Debug for Event {
@@ -72,6 +75,13 @@ impl Debug for Event {
         match *self {
             Event::Call { ty, ref data, .. } => {
                 fmt.debug_struct("Event::Call")
+                    .field("ty", &ty)
+                    .field("len", &data.len())
+                    .finish()
+            }
+            Event::Push { id, ty, ref data } => {
+                fmt.debug_struct("Event::Push")
+                    .field("id", &id)
                     .field("ty", &ty)
                     .field("len", &data.len())
                     .finish()
@@ -138,13 +148,14 @@ impl MessageBuf {
 
 enum Notify {
     Call(u64, oneshot::Sender<Result<u64, Error>>),
-    // Push(oneshot::Sender<Result<(), Error>>),
+    Push,
 }
 
 impl Notify {
     fn complete(self, val: Result<(), io::Error>) {
         match self {
             Notify::Call(id, tx) => tx.complete(val.and(Ok(id)).map_err(Error::Io)),
+            Notify::Push => {}
         }
     }
 }
@@ -182,13 +193,37 @@ bitflags! {
 enum MultiplexError {
     /// Operation has been aborted due to I/O error.
     Io(io::Error),
+    /// Transport protocol error.
+    InvalidProtocol(io::Error),
     /// Framing error.
     InvalidFraming(frame::Error),
+}
+
+impl MultiplexError {
+    fn clone(&self) -> Self {
+        match *self {
+            MultiplexError::Io(ref err) => {
+                MultiplexError::Io(io::Error::new(err.kind(), error::Error::description(err)))
+            }
+            MultiplexError::InvalidProtocol(ref err) => {
+                MultiplexError::InvalidProtocol(io::Error::new(err.kind(), error::Error::description(err)))
+            }
+            MultiplexError::InvalidFraming(ref err) => {
+                MultiplexError::InvalidFraming(err.clone())
+            }
+        }
+    }
 }
 
 impl From<io::Error> for MultiplexError {
     fn from(err: io::Error) -> Self {
         MultiplexError::Io(err)
+    }
+}
+
+impl<'a> From<rmpv::decode::Error> for MultiplexError {
+    fn from(err: rmpv::decode::Error) -> Self {
+        MultiplexError::InvalidProtocol(err.into())
     }
 }
 
@@ -260,12 +295,21 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                 let notify = Notify::Call(self.id, tx);
                 let message = Message {
                     mbuf: mbuf,
-                    notify: notify
+                    notify: notify,
                 };
 
                 self.pending.push_back(message);
 
                 self.dispatches.insert(self.id, dispatch);
+            }
+            Event::Push { id, ty, data } => {
+                let mbuf = MessageBuf::new(id, ty, data).unwrap();
+                let message = Message {
+                    mbuf: mbuf,
+                    notify: Notify::Push,
+                };
+
+                self.pending.push_back(message);
             }
         }
     }
@@ -366,12 +410,24 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                                 let frame = Frame::new(&raw)?;
                                 debug!("-> {}", frame);
                                 // TODO: First check the performance difference between owning &
-                                // non-owning values.
+                                // non-owning values. Then it is possible to easily adapt this code.
+                                // Hyper requires ownership, `minihttp` copies bytes.
+                                // Value +++:
+                                //  - Owned.
+                                //  - No lifetimes hell.
+                                // Value ---:
+                                //  - Copy from readable buffer (1 copy).
+                                //
+                                // ValueRef +++:
+                                //  - Faster, but still requires heap allocation.
+                                // ValueRef ---:
+                                //  - Lifetimes hell.
+                                //  - Still requires to copy to move ownership to Hyper (1 copy,
+                                //    but more granular).
                                 let id = frame.id();
                                 let ty = frame.ty();
                                 let args = frame.args();
 
-                                // TODO: Rewrite using `entry` API.
                                 match self.dispatches.remove(&id) {
                                     Some(dispatch) => {
                                         match dispatch.process(ty, args) {
@@ -395,9 +451,8 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                                 break;
                             }
                             Err(err) => {
-                                error!("failed to decode value from read buffer {:?}", err);
-                                // TODO: Framing error. We should terminate the connection.
-                                unimplemented!();
+                                error!("failed to decode value from the read buffer: {:?}", err);
+                                return Err(err.into());
                             }
                         }
                     }
@@ -455,7 +510,7 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
             match self.poll_send() {
                 Ok(Ready(())) => return Ok(Ready(())),
                 Ok(NotReady) => {}
-                Err(err) => return Err(err),
+                Err(err) => return Err(err), // TODO: Discard all pending events here.
             }
         }
 
@@ -463,7 +518,12 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
             match self.poll_recv() {
                 Ok(Ready(())) => return Ok(Ready(())),
                 Ok(NotReady) => {}
-                Err(err) => return Err(err),
+                Err(err) => {
+                    for (.., dispatch) in self.dispatches.drain() {
+                        dispatch.discard(&err.clone().into());
+                    }
+                    return Err(err);
+                }
             }
         }
 
@@ -484,6 +544,19 @@ impl Sender {
     fn new(id: u64, tx: mpsc::UnboundedSender<Event>) -> Self {
         Sender { id: id, tx: tx }
     }
+
+    pub fn send<T>(&self, ty: u64, args: &T)
+        where T: Serialize
+    {
+        let buf = rmps::to_vec(args).unwrap();
+
+        let event = Event::Push {
+            id: self.id,
+            ty: ty,
+            data: buf,
+        };
+        self.tx.send(event).unwrap();
+    }
 }
 
 impl Debug for Sender {
@@ -498,6 +571,7 @@ pub enum Error {
     Io(io::Error),
     /// Framing error.
     InvalidFraming(frame::Error),
+    InvalidProtocol(String),
     /// Service error with category, type and optional description.
     Service(u64, u64, Option<String>),
     /// Operation has been canceled internally due to unstoppable forces.
@@ -509,6 +583,9 @@ impl Error {
         match *self {
             Error::Io(ref err) => {
                 Error::Io(io::Error::new(err.kind(), error::Error::description(err)))
+            }
+            Error::InvalidProtocol(ref err) => {
+                Error::InvalidProtocol(err.clone())
             }
             Error::InvalidFraming(ref err) => {
                 Error::InvalidFraming(err.clone())
@@ -531,11 +608,22 @@ impl From<frame::Error> for Error {
     }
 }
 
+impl From<MultiplexError> for Error {
+    fn from(err: MultiplexError) -> Error {
+        match err {
+            MultiplexError::Io(err) => Error::Io(err),
+            MultiplexError::InvalidProtocol(err) => Error::InvalidProtocol(format!("{}", err)),
+            MultiplexError::InvalidFraming(err) => Error::InvalidFraming(err),
+        }
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
         match *self {
             Error::Io(ref err) => Display::fmt(&err, fmt),
             Error::InvalidFraming(ref err) => Display::fmt(&err, fmt),
+            Error::InvalidProtocol(ref err) => Display::fmt(&err, fmt),
             Error::Service(.., id, None) => write!(fmt, "[{}] no description", id),
             Error::Service(.., id, Some(ref desc)) => write!(fmt, "[{}]: {}", id, desc),
             Error::Canceled => write!(fmt, "canceled"),
@@ -608,18 +696,44 @@ impl Resolve for RealResolver {
             tx: oneshot::Sender<Result<Vec<SocketAddr>, Error>>,
         };
 
+        #[allow(dead_code)]
+        #[derive(Deserialize)]
+        struct GraphNode {
+            event: String,
+            rx: HashMap<u64, GraphNode>,
+        }
+
+        #[allow(dead_code)]
+        #[derive(Deserialize)]
+        struct GraphRoot {
+            event: String,
+            tx: HashMap<u64, GraphNode>,
+            rx: HashMap<u64, GraphNode>,
+        }
+
+        #[allow(dead_code)]
+        #[derive(Deserialize)]
+        struct ResolveInfo {
+            endpoints: Vec<(IpAddr, u16)>,
+            version: u64,
+            graph: HashMap<u64, GraphRoot>,
+        }
+
         impl Dispatch for ResolveDispatch {
             fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
                 // TODO: Will be eliminated using enum match.
                 match ty {
                     0 => {
-                        // TODO: Will be eliminated using serde and high-level bindings.
-                        let mut vec = Vec::new();
-                        for addr in response.index(0).to_owned().as_array().unwrap() {
-                            vec.extend((addr[0].as_str().unwrap(), addr[1].as_u64().unwrap() as u16).to_socket_addrs().unwrap());
+                        let info: ResolveInfo = rmpv::ext::from_value(response.to_owned()).unwrap();
+                        let mut endpoints = Vec::with_capacity(info.endpoints.len());
+                        for (host, port) in info.endpoints {
+                            endpoints.extend((host, port).to_socket_addrs().unwrap());
                         }
 
-                        self.tx.complete(Ok(vec));
+                        self.tx.complete(Ok(endpoints));
+                    }
+                    1 => {
+                        unimplemented!();
                     }
                     _ => {
                         unimplemented!();
@@ -662,6 +776,7 @@ struct Supervisor<R> {
     rx: Fuse<mpsc::UnboundedReceiver<Event>>,
     // Event loop notifier.
     handle: Handle,
+    // TODO: connection_observers: VecDeque<Sender<Result<(), Error>>>,
     // Saved events while not being connected.
     events: VecDeque<Event>,
 }
@@ -671,7 +786,7 @@ impl<R: Resolve> Future for Supervisor<R> {
     type Error = MultiplexError;
 
     fn poll(&mut self) -> Poll<(), Self::Error> {
-        debug!("poll multiplex, state: {} [id={:p}]", self.state.as_ref().unwrap(), self);
+        debug!("poll supervisor, state: {} [id={:p}]", self.state.as_ref().unwrap(), self);
 
         match self.state.take().expect("failed to extract internal state") {
             State::Disconnected => {
@@ -679,6 +794,15 @@ impl<R: Resolve> Future for Supervisor<R> {
                 // invocation and cancellation events.
                 match self.rx.poll() {
                     Ok(Ready(Some(event))) => {
+                        // TODO: Implement.
+                        // match event {
+                        //     Event::Connect |
+                        //     Event::Reconnect => {
+                        //
+                        //     }
+                        //     // Event::Disconnect => {} // Do nothing.
+                        //     event => {} // Push and connect.
+                        // }
                         self.events.push_back(event);
                         debug!("pushed event into the queue, pending: {}", self.events.len());
 
@@ -722,14 +846,15 @@ impl<R: Resolve> Future for Supervisor<R> {
                     }
                     Err(err) => {
                         error!("failed to resolve `{}` service: {}", self.name, err);
-                        // TODO: Nofify dispatches.
                         for event in self.events.drain(..) {
                             match event {
                                 Event::Call { dispatch, .. } => {
                                     dispatch.discard(&err);
                                 }
+                                Event::Push { .. } => {}
                             }
                         }
+
                         self.state = Some(State::Disconnected);
                     }
                 }
@@ -752,9 +877,9 @@ impl<R: Resolve> Future for Supervisor<R> {
                 match future.poll() {
                     Ok(Ready(sock)) => {
                         let peer = sock.peer_addr()?;
+                        sock.set_nodelay(true)?;
 
                         info!("successfully connected to {}", peer);
-
                         let mut mx = Multiplex::new(sock, peer);
 
                         for event in self.events.drain(..) {
@@ -776,6 +901,7 @@ impl<R: Resolve> Future for Supervisor<R> {
                                 Event::Call { dispatch, .. } => {
                                     dispatch.discard(&err);
                                 }
+                                Event::Push { .. } => {}
                             }
                         }
                         self.state = Some(State::Disconnected);
@@ -794,8 +920,9 @@ impl<R: Resolve> Future for Supervisor<R> {
                         Ok(Ready(None)) | Err(()) => {
                             // No more user input.
                             if future.pending.len() > 0 || future.dispatches.len() > 0 {
-                                debug!("detached multiplex with {} messages and {} dispatches",
+                                debug!("detached supervisor with {} messages and {} dispatches",
                                     future.pending.len(), future.dispatches.len());
+
                                 future.state |= CLOSE_USER;
                                 self.handle.spawn(future.map_err(|_err| ()));
                             }
@@ -803,7 +930,6 @@ impl<R: Resolve> Future for Supervisor<R> {
                         }
                     }
                 }
-                // ^^ UNTESTED
 
                 // TODO: New events, socket events. Should be moved to `handle` when it's time to
                 // be disconnected to be able to handle pending send/recv events.
@@ -843,15 +969,16 @@ pub struct Service {
 impl Service {
     /// Constructs a new `Service` with a given name.
     ///
-    /// This will not perform pre-connection until required. Both name resolution and connection
-    /// will be performed on demand, but you can call `connect()` method for fine-grained control.
+    /// This will not perform a connection attempt until required - both name resolution and
+    /// connection will be performed on demand. You can call `connect()` method for fine-grained
+    /// control.
     pub fn new<N>(name: N, handle: &Handle) -> Self
         where N: Into<Cow<'static, str>>
     {
         Service::with_resolver(name, handle, RealResolver)
     }
 
-    // TODO: `pub fn with_endpoints(...)`.
+    // TODO: `pub fn with_endpoints(...)` or `ServiceBuilder` (but why?).
 
     fn with_resolver<N, R>(name: N, handle: &Handle, resolver: R) -> Self
         where N: Into<Cow<'static, str>>,
@@ -870,7 +997,7 @@ impl Service {
             events: VecDeque::new(),
         };
 
-        handle.spawn(mx.map_err(|err| warn!("stopped multiplex task: {:?}", err) ));
+        handle.spawn(mx.map_err(|err| warn!("stopped supervisor task: {:?}", err) ));
 
         Service {
             name: name,
@@ -884,12 +1011,14 @@ impl Service {
     }
 
     // TODO: pub fn `connect(&self)`.
+    // TODO: pub fn `reconnect(&self)`.
+    // TODO: pub fn `disconnect(&self)`.
 
     pub fn call<T, D>(&self, ty: u64, args: &T, dispatch: D) -> impl Future<Item = Sender, Error = Error>
         where T: Serialize,
-              D: Dispatch + Send + Sync + 'static
+              D: Dispatch + Send + 'static
     {
-        let buf = to_vec(args).unwrap();
+        let buf = rmps::to_vec(args).unwrap();
 
         let (tx, rx) = oneshot::channel();
         let event = Event::Call {

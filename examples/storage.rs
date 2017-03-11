@@ -55,10 +55,6 @@ fn main() {
     handle.spawn(future);
 
     core.run(rx).unwrap();
-
-    loop {
-        core.turn(None);
-    }
 }
 
 // s.call(Enqueue("ping"));
