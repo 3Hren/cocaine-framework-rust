@@ -153,7 +153,7 @@ enum Notify {
 impl Notify {
     fn complete(self, val: Result<(), io::Error>) {
         match self {
-            Notify::Call(id, tx) => tx.complete(val.and(Ok(id)).map_err(Error::Io)),
+            Notify::Call(id, tx) => drop(tx.send(val.and(Ok(id)).map_err(Error::Io))),
             Notify::Push => {}
         }
     }
@@ -729,7 +729,7 @@ impl Resolve for RealResolver {
                             endpoints.push(SocketAddr::new(host, port));
                         }
 
-                        self.tx.complete(Ok(endpoints));
+                        drop(self.tx.send(Ok(endpoints)));
                     }
                     1 => {
                         unimplemented!();
@@ -743,7 +743,7 @@ impl Resolve for RealResolver {
             }
 
             fn discard(self: Box<Self>, err: &Error) {
-                self.tx.complete(Err(err.clone()));
+                drop(self.tx.send(Err(err.clone())));
             }
         }
 
