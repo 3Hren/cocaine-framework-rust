@@ -142,7 +142,6 @@ impl MessageBuf {
             let from = self.data.start();
             self.data.set_start(from + num);
         }
-
     }
 }
 
