@@ -48,7 +48,7 @@ struct ResolveDispatch {
 impl Dispatch for ResolveDispatch {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
         // TODO: Will be eliminated using enum match.
-        match ty {
+        let result = match ty {
             0 => {
                 match rmpv::ext::from_value(response.to_owned()) {
                     Ok(ResolveInfo { endpoints, version, methods }) => {
@@ -62,20 +62,29 @@ impl Dispatch for ResolveDispatch {
                             methods: methods,
                         };
 
-                        drop(self.tx.send(Ok(result)));
+                        Ok(result)
                     }
                     Err(err) => {
-                        drop(self.tx.send(Err(Error::InvalidDataFraming(format!("{}", err)))))
+                        Err(Error::InvalidDataFraming(format!("{}", err)))
                     }
                 }
             }
             1 => {
-                unimplemented!();
+                match rmpv::ext::from_value(response.to_owned()) {
+                    Ok(((category, ty), description)) => {
+                        Err(Error::Service(category, ty, description))
+                    }
+                    Err(err) => {
+                        Err(Error::InvalidDataFraming(format!("{}", err)))
+                    }
+                }
             }
-            _ => {
-                unimplemented!();
+            m => {
+                Err(Error::InvalidDataFraming(format!("unexpected message with type {}", m)))
             }
-        }
+        };
+
+        drop(self.tx.send(result));
 
         None
     }
