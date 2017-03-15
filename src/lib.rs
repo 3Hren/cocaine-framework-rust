@@ -42,10 +42,12 @@ use Async::*;
 
 mod frame;
 mod net;
+mod service;
 mod sys;
 
-use self::frame::Frame;
 use net::connect;
+use self::frame::Frame;
+pub use self::service::{Builder, Locator};
 
 pub trait Dispatch {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>>;
@@ -568,9 +570,14 @@ impl Debug for Sender {
 pub enum Error {
     /// Operation has been aborted due to I/O error.
     Io(io::Error),
+    /// Transport protocol error, for example invalid MessagePack message.
+    // TODO: -> TransportProtocolError
+    InvalidProtocol(io::Error),
     /// Framing error.
+    // TODO: -> ApplicationProtocolError
     InvalidFraming(frame::Error),
-    InvalidProtocol(String),
+    /// Failed to unpack data frame into the expected type.
+    InvalidDataFraming(String),
     /// Service error with category, type and optional description.
     Service(u64, u64, Option<String>),
     /// Operation has been canceled internally due to unstoppable forces.
@@ -584,11 +591,12 @@ impl Error {
                 Error::Io(io::Error::new(err.kind(), error::Error::description(err)))
             }
             Error::InvalidProtocol(ref err) => {
-                Error::InvalidProtocol(err.clone())
+                Error::InvalidProtocol(io::Error::new(err.kind(), error::Error::description(err)))
             }
             Error::InvalidFraming(ref err) => {
                 Error::InvalidFraming(err.clone())
             }
+            Error::InvalidDataFraming(ref err) => Error::InvalidDataFraming(err.clone()),
             Error::Service(cat, ty, ref desc) => Error::Service(cat, ty, desc.clone()),
             Error::Canceled => Error::Canceled,
         }
@@ -611,7 +619,7 @@ impl From<MultiplexError> for Error {
     fn from(err: MultiplexError) -> Error {
         match err {
             MultiplexError::Io(err) => Error::Io(err),
-            MultiplexError::InvalidProtocol(err) => Error::InvalidProtocol(format!("{}", err)),
+            MultiplexError::InvalidProtocol(err) => Error::InvalidProtocol(err),
             MultiplexError::InvalidFraming(err) => Error::InvalidFraming(err),
         }
     }
@@ -621,8 +629,9 @@ impl Display for Error {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
         match *self {
             Error::Io(ref err) => Display::fmt(&err, fmt),
-            Error::InvalidFraming(ref err) => Display::fmt(&err, fmt),
             Error::InvalidProtocol(ref err) => Display::fmt(&err, fmt),
+            Error::InvalidFraming(ref err) => Display::fmt(&err, fmt),
+            Error::InvalidDataFraming(ref err) => Display::fmt(&err, fmt),
             Error::Service(.., id, None) => write!(fmt, "[{}] no description", id),
             Error::Service(.., id, Some(ref desc)) => write!(fmt, "[{}]: {}", id, desc),
             Error::Canceled => write!(fmt, "canceled"),
@@ -659,107 +668,55 @@ impl Display for State {
     }
 }
 
-trait Resolve {
-    fn resolve(&mut self, name: Cow<'static, str>, handle: &Handle) ->
-        Box<Future<Item = Vec<SocketAddr>, Error = Error>>;
+pub trait Resolve {
+    fn resolve(&mut self, name: &str) -> Box<Future<Item = Vec<SocketAddr>, Error = Error>>;
 }
 
-struct MockResolver {
+/// A no-op resolver, that always returns preliminarily specified endpoints.
+///
+/// Used primarily while resolving a `Locator` itself, but can be also used, when you're sure about
+/// service's location.
+pub struct FixedResolver {
     addrs: Vec<SocketAddr>,
 }
 
-impl Resolve for MockResolver {
-    fn resolve(&mut self, _name: Cow<'static, str>, _handle: &Handle) ->
-        Box<Future<Item = Vec<SocketAddr>, Error = Error>>
-    {
+impl FixedResolver {
+    pub fn new(addrs: Vec<SocketAddr>) -> Self {
+        FixedResolver {
+            addrs: addrs,
+        }
+    }
+}
+
+impl Default for FixedResolver {
+    fn default() -> Self {
+        FixedResolver {
+            addrs: vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053)],
+        }
+    }
+}
+
+impl Resolve for FixedResolver {
+    fn resolve(&mut self, _name: &str) -> Box<Future<Item = Vec<SocketAddr>, Error = Error>> {
         box future::ok(self.addrs.clone())
     }
 }
 
-struct RealResolver;
+struct Resolver {
+    locator: Locator,
+}
 
-impl Resolve for RealResolver {
-    fn resolve(&mut self, name: Cow<'static, str>, handle: &Handle) ->
-        Box<Future<Item = Vec<SocketAddr>, Error = Error>>
-    {
-        let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053);
-        let resolver = MockResolver {
-            addrs: vec![addr],
-        };
-
-        let service = Service::with_resolver("locator", handle, resolver);
-
-        let (tx, rx) = oneshot::channel();
-
-        struct ResolveDispatch {
-            tx: oneshot::Sender<Result<Vec<SocketAddr>, Error>>,
-        };
-
-        #[allow(dead_code)]
-        #[derive(Deserialize)]
-        struct GraphNode {
-            event: String,
-            rx: HashMap<u64, GraphNode>,
+impl Resolver {
+    fn new(locator: Service) -> Self {
+        Resolver {
+            locator: Locator::new(locator),
         }
+    }
+}
 
-        #[allow(dead_code)]
-        #[derive(Deserialize)]
-        struct GraphRoot {
-            event: String,
-            tx: HashMap<u64, GraphNode>,
-            rx: HashMap<u64, GraphNode>,
-        }
-
-        #[allow(dead_code)]
-        #[derive(Deserialize)]
-        struct ResolveInfo {
-            endpoints: Vec<(IpAddr, u16)>,
-            version: u64,
-            graph: HashMap<u64, GraphRoot>,
-        }
-
-        impl Dispatch for ResolveDispatch {
-            fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-                // TODO: Will be eliminated using enum match.
-                match ty {
-                    0 => {
-                        let info: ResolveInfo = rmpv::ext::from_value(response.to_owned()).unwrap();
-                        let mut endpoints = Vec::with_capacity(info.endpoints.len());
-                        for (host, port) in info.endpoints {
-                            endpoints.push(SocketAddr::new(host, port));
-                        }
-
-                        drop(self.tx.send(Ok(endpoints)));
-                    }
-                    1 => {
-                        unimplemented!();
-                    }
-                    _ => {
-                        unimplemented!();
-                    }
-                }
-
-                None
-            }
-
-            fn discard(self: Box<Self>, err: &Error) {
-                drop(self.tx.send(Err(err.clone())));
-            }
-        }
-
-        let dispatch = ResolveDispatch {
-            tx: tx,
-        };
-
-        service.call(0, &vec![name], dispatch);
-
-        box rx.then(|res| {
-            match res {
-                Ok(Ok(vec)) => Ok(vec),
-                Ok(Err(err)) => Err(err),
-                Err(oneshot::Canceled) => Err(Error::Canceled),
-            }
-        })
+impl Resolve for Resolver {
+    fn resolve(&mut self, name: &str) -> Box<Future<Item = Vec<SocketAddr>, Error = Error>> {
+        box self.locator.resolve(name).map(|info| info.endpoints().into())
     }
 }
 
@@ -771,6 +728,7 @@ struct Supervisor<R> {
     resolver: R,
     // State.
     state: Option<State>,
+    // control: unsync::mpsc::UnboundedReceiver<Control>,
     // Event channel.
     rx: Fuse<mpsc::UnboundedReceiver<Event>>,
     // Event loop notifier.
@@ -778,6 +736,28 @@ struct Supervisor<R> {
     // TODO: connection_observers: VecDeque<Sender<Result<(), Error>>>,
     // Saved events while not being connected.
     events: VecDeque<Event>,
+}
+
+impl<R> Supervisor<R> {
+    /// Spawns a supervisor that will work inside the given event loop's context.
+    fn spawn(name: Cow<'static, str>, resolver: R, handle: &Handle) -> mpsc::UnboundedSender<Event>
+        where R: Resolve + 'static
+    {
+        let (tx, rx) = mpsc::unbounded();
+
+        let v = Supervisor {
+            name: name,
+            resolver: resolver,
+            state: Some(State::Disconnected),
+            rx: rx.fuse(),
+            handle: handle.clone(),
+            events: VecDeque::new(),
+        };
+
+        handle.spawn(v.map_err(|err| warn!("stopped supervisor task: {:?}", err)));
+
+        tx
+    }
 }
 
 impl<R: Resolve> Future for Supervisor<R> {
@@ -794,6 +774,13 @@ impl<R: Resolve> Future for Supervisor<R> {
                 match self.rx.poll() {
                     Ok(Ready(Some(event))) => {
                         // TODO: Implement.
+                        // 2 ways:
+                        //  - 2 channels (1 for control events, 1 for RPC).
+                        //      + no match for RPC at not-ready-time.
+                        //      - additional channel.
+                        //  - 1 channel (1 big match).
+                        //      + single channel.
+                        //      - 1 match for each event during extract, 1 during queue flush.
                         // match event {
                         //     Event::Connect |
                         //     Event::Reconnect => {
@@ -805,7 +792,7 @@ impl<R: Resolve> Future for Supervisor<R> {
                         self.events.push_back(event);
                         debug!("pushed event into the queue, pending: {}", self.events.len());
 
-                        self.state = Some(State::Resolving(self.resolver.resolve(self.name.clone(), &self.handle)));
+                        self.state = Some(State::Resolving(self.resolver.resolve(&self.name)));
                         debug!("switched state from `disconnected` to `resolving`");
                         return self.poll();
                     }
@@ -971,37 +958,12 @@ impl Service {
     /// This will not perform a connection attempt until required - both name resolution and
     /// connection will be performed on demand. You can call `connect()` method for fine-grained
     /// control.
+    ///
+    /// For more fine-grained service configuration use `cocaine::service::Builder` instead.
     pub fn new<N>(name: N, handle: &Handle) -> Self
         where N: Into<Cow<'static, str>>
     {
-        Service::with_resolver(name, handle, RealResolver)
-    }
-
-    // TODO: `pub fn with_endpoints(...)` or `ServiceBuilder` (but why?).
-
-    fn with_resolver<N, R>(name: N, handle: &Handle, resolver: R) -> Self
-        where N: Into<Cow<'static, str>>,
-              R: Resolve + 'static
-    {
-        let name = name.into();
-
-        let (tx, rx) = mpsc::unbounded();
-
-        let mx = Supervisor {
-            name: name.clone(),
-            resolver: resolver,
-            state: Some(State::Disconnected),
-            rx: rx.fuse(),
-            handle: handle.clone(),
-            events: VecDeque::new(),
-        };
-
-        handle.spawn(mx.map_err(|err| warn!("stopped supervisor task: {:?}", err) ));
-
-        Service {
-            name: name,
-            tx: tx,
-        }
+        Builder::new(name, handle.clone()).build()
     }
 
     /// Returns service name.
@@ -1010,7 +972,6 @@ impl Service {
     }
 
     // TODO: pub fn `connect(&self)`.
-    // TODO: pub fn `reconnect(&self)`.
     // TODO: pub fn `disconnect(&self)`.
 
     pub fn call<T, D>(&self, ty: u64, args: &T, dispatch: D) -> impl Future<Item = Sender, Error = Error>
@@ -1036,6 +997,14 @@ impl Service {
                 Err(Canceled) => Err(Error::Canceled),
             }
         })
+    }
+}
+
+impl Debug for Service {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
+        fmt.debug_struct("Service")
+            .field("name", &self.name)
+            .finish()
     }
 }
 
