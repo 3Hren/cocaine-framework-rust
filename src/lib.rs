@@ -47,7 +47,7 @@ mod sys;
 
 use net::connect;
 use self::frame::Frame;
-pub use self::service::{Builder, Locator};
+pub use self::service::{App, Builder, Locator};
 
 pub trait Dispatch {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>>;

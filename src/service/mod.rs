@@ -8,8 +8,10 @@ use tokio_core::reactor::Handle;
 use {Resolve, Service};
 use super::{FixedResolver, Resolver, Supervisor};
 
+mod app;
 mod locator;
 
+pub use self::app::{App, Streaming};
 pub use self::locator::Locator;
 
 const LOCATOR_NAME: &'static str = "locator";
