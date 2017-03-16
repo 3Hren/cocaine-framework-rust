@@ -971,9 +971,32 @@ impl Service {
         &self.name
     }
 
-    // TODO: pub fn `connect(&self)`.
-    // TODO: pub fn `disconnect(&self)`.
+    /// Connects to the service, performing name resolution and TCP connection establishing.
+    ///
+    /// Does nothing, if a service is already connected to some backend.
+    pub fn connect(&self) -> impl Future<Item = (), Error = Error> {
+        future::ok(())
+    }
 
+    /// Disconnects from a remote service without discarding pending requests.
+    pub fn disconnect(&self) {
+        unimplemented!();
+    }
+
+    /// Returns the socket address of the remote peer of this TCP connection.
+    pub fn peer_addr(&self) -> Result<SocketAddr, io::Error> {
+        unimplemented!();
+    }
+
+    /// Returns the socket address of the local half of this TCP connection.
+    pub fn local_addr(&self) -> Result<SocketAddr, io::Error> {
+        unimplemented!();
+    }
+
+    /// Performs an RPC with a specified type and arguments.
+    ///
+    /// The result type is a future of `Sender`, because service requires TCP connection
+    /// established before the request can be processed.
     pub fn call<T, D>(&self, ty: u64, args: &T, dispatch: D) -> impl Future<Item = Sender, Error = Error>
         where T: Serialize,
               D: Dispatch + Send + 'static
