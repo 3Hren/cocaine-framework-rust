@@ -49,7 +49,7 @@ use net::connect;
 use self::frame::Frame;
 pub use self::service::{App, Builder, Locator};
 
-pub trait Dispatch {
+pub trait Dispatch: Send {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>>;
 
     fn discard(self: Box<Self>, err: &Error) {
@@ -62,7 +62,7 @@ enum Event {
     Call {
         ty: u64,
         data: Vec<u8>,
-        dispatch: Box<Dispatch + Send>,
+        dispatch: Box<Dispatch>,
         tx: oneshot::Sender<Result<u64, Error>>,
     },
     Push {
@@ -999,7 +999,7 @@ impl Service {
     /// established before the request can be processed.
     pub fn call<T, D>(&self, ty: u64, args: &T, dispatch: D) -> impl Future<Item = Sender, Error = Error>
         where T: Serialize,
-              D: Dispatch + Send + 'static
+              D: Dispatch + 'static
     {
         let buf = rmps::to_vec(args).unwrap();
 
