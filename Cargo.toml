@@ -15,9 +15,10 @@ rmpv = { version = "0.3", path = "../rmp/rmpv", features = ["with-serde"] }
 serde = "0.9"
 serde_derive = "0.9"
 futures = "0.1"
-tokio-core = "0.1"
 nix = "*"
 libc = "*"
+tokio-core = "=0.1.4"
+mio = "=0.6.4"
 
 [dev-dependencies]
 slog = "1.4"
