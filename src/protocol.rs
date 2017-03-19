@@ -61,7 +61,7 @@ impl Into<super::Error> for Error {
 ///
 /// # Note
 ///
-/// Used primarily in conjuction with [`deserialize`][deserialize] function inside dispatches to
+/// Used primarily in conjunction with [`deserialize`][deserialize] function inside dispatches to
 /// map arguments into the user-defined type.
 ///
 /// [deserialize]: fn.deserialize.html
@@ -75,7 +75,7 @@ pub type Primitive<T> = Result<T, Error>;
 ///
 /// # Note
 ///
-/// Used primarily in conjuction with [`deserialize`][deserialize] function inside dispatches to
+/// Used primarily in conjunction with [`deserialize`][deserialize] function inside dispatches to
 /// map arguments into the user-defined type.
 ///
 /// [deserialize]: fn.deserialize.html
