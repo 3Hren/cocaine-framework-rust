@@ -4,9 +4,10 @@ use std::net::{IpAddr, SocketAddr};
 use futures::Future;
 use futures::sync::oneshot;
 
-use rmpv::{self, ValueRef};
+use rmpv::ValueRef;
 
 use {Dispatch, Error, Service};
+use protocol::{self, Flatten, Primitive};
 
 #[derive(Debug, Deserialize)]
 pub struct GraphNode {
@@ -47,42 +48,20 @@ struct ResolveDispatch {
 
 impl Dispatch for ResolveDispatch {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-        // TODO: Will be eliminated using enum match.
-        let result = match ty {
-            0 => {
-                match rmpv::ext::from_value(response.to_owned()) {
-                    Ok(ResolveInfo { endpoints, version, methods }) => {
-                        let endpoints = endpoints.into_iter()
-                            .map(|(ip, port)| SocketAddr::new(ip, port))
-                            .collect();
+        let result = protocol::deserialize::<Primitive<ResolveInfo>>(ty, response)
+            .flatten()
+            .map(|ResolveInfo{endpoints, version, methods}|
+        {
+            let endpoints = endpoints.into_iter()
+                .map(|(ip, port)| SocketAddr::new(ip, port))
+                .collect();
 
-                        let result = Info {
-                            endpoints: endpoints,
-                            version: version,
-                            methods: methods,
-                        };
-
-                        Ok(result)
-                    }
-                    Err(err) => {
-                        Err(Error::InvalidDataFraming(format!("{}", err)))
-                    }
-                }
+            Info {
+                endpoints: endpoints,
+                version: version,
+                methods: methods,
             }
-            1 => {
-                match rmpv::ext::from_value(response.to_owned()) {
-                    Ok(((category, ty), description)) => {
-                        Err(Error::Service(category, ty, description))
-                    }
-                    Err(err) => {
-                        Err(Error::InvalidDataFraming(format!("{}", err)))
-                    }
-                }
-            }
-            m => {
-                Err(Error::InvalidDataFraming(format!("unexpected message with type {}", m)))
-            }
-        };
+        });
 
         drop(self.tx.send(result));
 

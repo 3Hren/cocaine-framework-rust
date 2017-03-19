@@ -1,62 +1,32 @@
 use futures::{self, Future};
 use futures::sync::mpsc::{self, UnboundedReceiver};
 
-use rmpv::{self, ValueRef};
+use rmpv::ValueRef;
 
 use {Dispatch, Error, Service};
+use protocol::{self, Flatten};
 
+#[derive(Debug)]
 struct AppDispatch {
-    tx: mpsc::UnboundedSender<Streaming>,
+    tx: mpsc::UnboundedSender<Streaming<String>>,
 }
 
 impl Dispatch for AppDispatch {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-        let result = match ty {
-            0 => {
-                match rmpv::ext::from_value(response.to_owned()) {
-                    Ok((data,)) => {
-                        Streaming::Write(data)
-                    }
-                    Err(err) => {
-                        Streaming::Error(Error::InvalidDataFraming(format!("{}", err)))
-                    }
-                }
+        let mut close = false;
+        let result = match protocol::deserialize::<protocol::Streaming<String>>(ty, response)
+            .flatten()
+        {
+            Ok(Some(data)) => Streaming::Write(data),
+            Ok(None) => {
+                close = true;
+                Streaming::Close
             }
-            1 => {
-                match rmpv::ext::from_value(response.to_owned()) {
-                    Ok(((category, ty), description)) => {
-                        Streaming::Error(Error::Service(category, ty, description))
-                    }
-                    Err(err) => {
-                        Streaming::Error(Error::InvalidDataFraming(format!("{}", err)))
-                    }
-                }
-            }
-            2 => {
-                #[derive(Deserialize)]
-                struct Close;
-
-                match rmpv::ext::from_value(response.to_owned()) {
-                    Ok(Close) => {
-                        Streaming::Close
-                    }
-                    Err(err) => {
-                        Streaming::Error(Error::InvalidDataFraming(format!("{}", err)))
-                    }
-                }
-            }
-            m => {
-                Streaming::Error(Error::InvalidDataFraming(format!("unexpected message with type {}", m)))
+            Err(err) => {
+                close = true;
+                Streaming::Error(err)
             }
         };
-
-        let mut close = false;
-        if let &Streaming::Error(..) = &result {
-            close = true;
-        }
-        if let &Streaming::Close = &result {
-            close = true;
-        }
 
         drop(self.tx.send(result));
 
@@ -74,12 +44,13 @@ impl Dispatch for AppDispatch {
 }
 
 #[derive(Debug)]
-pub enum Streaming {
-    Write(String),
+pub enum Streaming<T> {
+    Write(T),
     Error(Error),
     Close,
 }
 
+#[derive(Debug)]
 pub struct Sender {
     inner: super::super::Sender,
 }
@@ -104,6 +75,7 @@ impl Drop for Sender {
     }
 }
 
+#[derive(Debug)]
 pub struct App {
     service: Service,
 }
@@ -114,7 +86,7 @@ impl App {
     }
 
     pub fn enqueue<'a>(&self, event: &'a str) ->
-        impl Future<Item=(Sender, UnboundedReceiver<Streaming>), Error=Error> + 'a
+        impl Future<Item=(Sender, UnboundedReceiver<Streaming<String>>), Error=Error> + 'a
     {
         let (tx, rx) = mpsc::unbounded();
 

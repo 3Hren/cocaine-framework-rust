@@ -1,10 +1,12 @@
 #![feature(box_syntax)]
 #![feature(conservative_impl_trait)]
 
+#![warn(missing_debug_implementations)]
+
 #[macro_use] extern crate bitflags;
 #[macro_use] extern crate log;
 extern crate futures;
-extern crate serde;
+#[macro_use] extern crate serde;
 #[macro_use] extern crate serde_derive;
 extern crate rmp;
 extern crate rmp_serde as rmps;
@@ -42,6 +44,7 @@ use Async::*;
 
 mod frame;
 mod net;
+pub mod protocol;
 mod service;
 mod sys;
 
@@ -415,14 +418,13 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                                 // Hyper requires ownership, `minihttp` copies bytes.
                                 // Value +++:
                                 //  - Owned.
-                                //  - No lifetimes hell.
                                 // Value ---:
                                 //  - Copy from readable buffer (1 copy).
                                 //
                                 // ValueRef +++:
-                                //  - Faster, but still requires heap allocation.
+                                //  - Faster, but still requires heap allocation for vectors.
+                                //  - No copy for no Hyper.
                                 // ValueRef ---:
-                                //  - Lifetimes hell.
                                 //  - Still requires to copy to move ownership to Hyper (1 copy,
                                 //    but more granular).
                                 let id = frame.id();
@@ -579,7 +581,7 @@ pub enum Error {
     /// Failed to unpack data frame into the expected type.
     InvalidDataFraming(String),
     /// Service error with category, type and optional description.
-    Service(u64, u64, Option<String>),
+    Service(protocol::Error),
     /// Operation has been canceled internally due to unstoppable forces.
     Canceled,
 }
@@ -597,7 +599,7 @@ impl Error {
                 Error::InvalidFraming(err.clone())
             }
             Error::InvalidDataFraming(ref err) => Error::InvalidDataFraming(err.clone()),
-            Error::Service(cat, ty, ref desc) => Error::Service(cat, ty, desc.clone()),
+            Error::Service(ref err) => Error::Service(err.clone()),
             Error::Canceled => Error::Canceled,
         }
     }
@@ -632,10 +634,21 @@ impl Display for Error {
             Error::InvalidProtocol(ref err) => Display::fmt(&err, fmt),
             Error::InvalidFraming(ref err) => Display::fmt(&err, fmt),
             Error::InvalidDataFraming(ref err) => Display::fmt(&err, fmt),
-            Error::Service(.., id, None) => write!(fmt, "[{}] no description", id),
-            Error::Service(.., id, Some(ref desc)) => write!(fmt, "[{}]: {}", id, desc),
+            Error::Service(ref err) => Display::fmt(&err, fmt),
             Error::Canceled => write!(fmt, "canceled"),
         }
+    }
+}
+
+impl error::Error for Error {
+     fn description(&self) -> &str {
+         unimplemented!();
+     }
+}
+
+impl serde::de::Error for Error {
+    fn custom<T: Display>(msg: T) -> Self {
+        Error::InvalidDataFraming(format!("{}", msg))
     }
 }
 
@@ -676,11 +689,17 @@ pub trait Resolve {
 ///
 /// Used primarily while resolving a `Locator` itself, but can be also used, when you're sure about
 /// service's location.
+///
+/// The default value returns the default `Locator` endpoints, i.e `["::", 10053]` assuming that
+/// IPv6 is enabled.
+#[derive(Clone, Debug)]
 pub struct FixedResolver {
     addrs: Vec<SocketAddr>,
 }
 
 impl FixedResolver {
+    /// Constructs a fixed resolver, which will always resolve any service name into the specified
+    /// endpoints.
     pub fn new(addrs: Vec<SocketAddr>) -> Self {
         FixedResolver {
             addrs: addrs,
@@ -702,6 +721,7 @@ impl Resolve for FixedResolver {
     }
 }
 
+#[derive(Debug)]
 struct Resolver {
     locator: Locator,
 }
@@ -1031,7 +1051,12 @@ impl Debug for Service {
     }
 }
 
-fn _assert_service_sync_send() {
-    fn _assert<T: Sync + Send>() {}
-    _assert::<Service>();
+fn _assert_kinds() {
+    fn _assert_send<T: Send>() {}
+    fn _assert_sync<T: Sync>() {}
+    fn _assert_clone<T: Clone>() {}
+
+    _assert_send::<Service>();
+    _assert_sync::<Service>();
+    _assert_clone::<Service>();
 }
