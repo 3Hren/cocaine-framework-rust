@@ -16,17 +16,17 @@ use tokio_core::reactor::Core;
 
 use slog::{Logger, DrainExt};
 
-use rmpv::ValueRef;
+use rmpv::{Value, ValueRef};
 
 use cocaine::{Dispatch, Service};
 
 struct ReadDispatch {
-    tx: oneshot::Sender<()>,
+    tx: oneshot::Sender<(u64, Value)>,
 }
 
 impl Dispatch for ReadDispatch {
     fn process(self: Box<Self>, ty: u64, data: &ValueRef) -> Option<Box<Dispatch>> {
-        self.tx.complete(());
+        drop(self.tx.send((ty, data.to_owned())));
         None
     }
 }
@@ -54,5 +54,6 @@ fn main() {
     drop(service); // Just for fun.
     handle.spawn(future);
 
-    core.run(rx).unwrap();
+    let result = core.run(rx).unwrap();
+    println!("{}", result.1);
 }
