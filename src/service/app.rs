@@ -13,28 +13,27 @@ struct AppDispatch {
 
 impl Dispatch for AppDispatch {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-        let mut close = false;
+        let mut recurse = true;
         let result = match protocol::deserialize::<protocol::Streaming<String>>(ty, response)
             .flatten()
         {
             Ok(Some(data)) => Streaming::Write(data),
             Ok(None) => {
-                close = true;
+                recurse = false;
                 Streaming::Close
             }
             Err(err) => {
-                close = true;
+                recurse = false;
                 Streaming::Error(err)
             }
         };
 
         drop(self.tx.send(result));
 
-        if close {
-            drop(self.tx);
-            None
-        } else {
+        if recurse {
             Some(self)
+        } else {
+            None
         }
     }
 
@@ -82,7 +81,7 @@ pub struct App {
 
 impl App {
     pub fn new(service: Service) -> Self {
-        App { service: service }
+        Self { service: service }
     }
 
     pub fn enqueue<'a>(&self, event: &'a str) ->
