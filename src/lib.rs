@@ -611,10 +611,8 @@ pub enum Error {
     /// Operation has been aborted due to I/O error.
     Io(io::Error),
     /// Transport protocol error, for example invalid MessagePack message.
-    // TODO: -> TransportProtocolError
     InvalidProtocol(io::Error),
     /// Framing error.
-    // TODO: -> ApplicationProtocolError
     InvalidFraming(frame::Error),
     /// Failed to unpack data frame into the expected type.
     InvalidDataFraming(String),
