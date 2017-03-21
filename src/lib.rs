@@ -43,6 +43,7 @@ use rmpv::decode::read_value_ref;
 use Async::*;
 
 mod frame;
+pub mod logging;
 mod net;
 pub mod protocol;
 mod service;
@@ -52,20 +53,39 @@ use net::connect;
 use self::frame::Frame;
 pub use self::service::{App, Builder, Locator};
 
+/// Receiver part of every multiplexed non-mute request performed with a service.
 pub trait Dispatch: Send {
+    /// Processes a new incoming message from a service.
+    ///
+    /// This method is called on every valid frame received from a service for an associated
+    /// channel with message type and arguments provided. Usually the next step performed is
+    /// arguments deserialization using [`deserialize`][deserialize] function.
+    ///
+    /// Passing `Some(..)` as a result type forces the multiplexor to reregister either new or the
+    /// same `Dispatch` for processing new messages from the same channel again. Returning `None`
+    /// terminates processing.
+    ///
+    /// [deserialize]: protocol/fn.deserialize.html
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>>;
 
+    /// Discards the dispatch due to some error occurred during receiving the response.
+    ///
+    /// The default implementation does nothing.
     fn discard(self: Box<Self>, err: &Error) {
         let _ = err;
     }
 }
 
 enum Event {
-    // TODO: Connect/Disconnect.
     Call {
         ty: u64,
         data: Vec<u8>,
         dispatch: Box<Dispatch>,
+        tx: oneshot::Sender<Result<u64, Error>>,
+    },
+    Mute {
+        ty: u64,
+        data: Vec<u8>,
         tx: oneshot::Sender<Result<u64, Error>>,
     },
     Push {
@@ -80,6 +100,12 @@ impl Debug for Event {
         match *self {
             Event::Call { ty, ref data, .. } => {
                 fmt.debug_struct("Event::Call")
+                    .field("ty", &ty)
+                    .field("len", &data.len())
+                    .finish()
+            }
+            Event::Mute { ty, ref data, .. } => {
+                fmt.debug_struct("Event::Mute")
                     .field("ty", &ty)
                     .field("len", &data.len())
                     .finish()
@@ -305,6 +331,18 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                 self.pending.push_back(message);
 
                 self.dispatches.insert(self.id, dispatch);
+            }
+            Event::Mute { ty, data, tx } => {
+                self.id += 1;
+
+                let mbuf = MessageBuf::new(self.id, ty, data).unwrap();
+                let notify = Notify::Call(self.id, tx);
+                let message = Message {
+                    mbuf: mbuf,
+                    notify: notify,
+                };
+
+                self.pending.push_back(message);
             }
             Event::Push { id, ty, data } => {
                 let mbuf = MessageBuf::new(id, ty, data).unwrap();
@@ -857,6 +895,7 @@ impl<R: Resolve> Future for Supervisor<R> {
                                 Event::Call { dispatch, .. } => {
                                     dispatch.discard(&err);
                                 }
+                                Event::Mute { .. } |
                                 Event::Push { .. } => {}
                             }
                         }
@@ -907,6 +946,7 @@ impl<R: Resolve> Future for Supervisor<R> {
                                 Event::Call { dispatch, .. } => {
                                     dispatch.discard(&err);
                                 }
+                                Event::Mute { .. } |
                                 Event::Push { .. } => {}
                             }
                         }
@@ -958,7 +998,7 @@ impl<R: Resolve> Future for Supervisor<R> {
     }
 }
 
-/// An entry point to the Cocaine Cloud.
+/// A low-level entry point to the Cocaine Cloud.
 ///
 /// The `Service` provides an ability to work with Cocaine services in a thread-safe manner with
 /// automatic name resolution and reconnection before the next request after any unexpected
@@ -1017,6 +1057,14 @@ impl Service {
     ///
     /// The result type is a future of `Sender`, because service requires TCP connection
     /// established before the request can be processed.
+    ///
+    /// # Warning
+    ///
+    /// Calling a **mute** event using this method essentially leads to memory leak during this
+    /// object's entire lifetime, since the specified `Dispatch` will be captured.
+    /// For mute RPC use [`call_mute`][call_mute] instead.
+    ///
+    /// [call_mute]: #method.call_mute
     pub fn call<T, D>(&self, ty: u64, args: &T, dispatch: D) -> impl Future<Item = Sender, Error = Error>
         where T: Serialize,
               D: Dispatch + 'static
@@ -1032,6 +1080,41 @@ impl Service {
         };
         self.tx.send(event).unwrap();
         let tx = self.tx.clone();
+
+        rx.then(|send| {
+            match send {
+                Ok(Ok(id)) => Ok(Sender::new(id, tx)),
+                Ok(Err(err)) => Err(err),
+                Err(Canceled) => Err(Error::Canceled),
+            }
+        })
+    }
+
+    /// Performs a mute RPC with a specified type and arguments.
+    ///
+    /// Mute calls have no responses, that's why this method does not require a dispatch.
+    ///
+    /// # Warning
+    ///
+    /// Calling a service event, that actually does respond, leads to silent dropping all received
+    /// response chunks.
+    pub fn call_mute<T>(&self, ty: u64, args: &T) -> impl Future<Item = Sender, Error = Error>
+        where T: Serialize
+    {
+        let buf = rmps::to_vec(args).unwrap();
+        self.call_mute_raw(ty, buf)
+    }
+
+    #[inline]
+    fn call_mute_raw(&self, ty: u64, buf: Vec<u8>) -> impl Future<Item = Sender, Error = Error> {
+        let (tx, rx) = oneshot::channel();
+        let event = Event::Mute {
+            ty: ty,
+            data: buf,
+            tx: tx
+        };
+        let tx = self.tx.clone();
+        tx.send(event).unwrap();
 
         rx.then(|send| {
             match send {
