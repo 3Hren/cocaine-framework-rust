@@ -451,20 +451,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                             Ok(raw) => {
                                 let frame = Frame::new(&raw)?;
                                 debug!("-> {}", frame);
-                                // TODO: First check the performance difference between owning &
-                                // non-owning values. Then it is possible to easily adapt this code.
-                                // Hyper requires ownership, `minihttp` copies bytes.
-                                // Value +++:
-                                //  - Owned.
-                                // Value ---:
-                                //  - Copy from readable buffer (1 copy).
-                                //
-                                // ValueRef +++:
-                                //  - Faster, but still requires heap allocation for vectors.
-                                //  - No copy for no Hyper.
-                                // ValueRef ---:
-                                //  - Still requires to copy to move ownership to Hyper (1 copy,
-                                //    but more granular).
+
                                 let id = frame.id();
                                 let ty = frame.ty();
                                 let args = frame.args();
