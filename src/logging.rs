@@ -31,23 +31,19 @@ impl Inner {
 
             let service = Service::new("logging", &handle);
 
-            let future = rx.for_each(|event| {
+            let future = rx.and_then(|event| {
                 match event {
                     Event::Write(buf) => {
-                        service.call_mute_raw(0, buf);
-                        Ok(())
-                        // box service.call_mute_raw(0, buf).then(|tx| {
-                        //     drop(tx);
-                        //     Ok(())
-                        // }) as Box<Future<Item=(), Error=()>>
+                        service.call_mute_raw(0, buf).then(|tx| {
+                            drop(tx);
+                            Ok(())
+                        }).boxed()
                     }
-                    Event::Close => Err(()),
-                    // Event::Close => box future::err(()) as Box<Future<Item=(), Error=()>>,
+                    Event::Close => future::err(()).boxed()
                 }
             });
 
-            drop(core.run(future));
-            // drop(core.run(future.fold(0, |acc, v| future::ok(acc))));
+            drop(core.run(future.fold(0, |acc, _v| future::ok(acc))));
         });
 
         Self { tx: tx, thread: Some(thread) }
@@ -203,7 +199,6 @@ impl Filter {
 macro_rules! log (
     ($log:ident, $sev:expr, $fmt:expr, [$($args:tt)*], {$($name:ident: $val:expr,)+}) => {{
         extern crate rmp_serde as rmps;
-        extern crate rmpv;
 
         let sev: isize = $sev.into();
 
@@ -214,7 +209,6 @@ macro_rules! log (
     }};
     ($log:ident, $sev:expr, $fmt:expr, [$($args:tt)*], {}) => {{
         extern crate rmp_serde as rmps;
-        extern crate rmpv;
 
         let sev: isize = $sev.into();
 
@@ -232,7 +226,13 @@ macro_rules! log (
     ($log:ident, $sev:expr, $fmt:expr, $($args:tt)*) => {{
         log!($log, $sev, $fmt, [$($args)*], {})
     }};
+    (I $log:ident, $fmt:expr, $($args:tt)*) => {{
+        log!($log, Sev::Info, $fmt, [$($args)*], {})
+    }};
     ($log:ident, $sev:expr, $fmt:expr) => {{
         log!($log, $sev, $fmt, [], {})
+    }};
+    (I $log:ident, $fmt:expr) => {{
+        log!($log, Sev::Info, $fmt, [], {})
     }};
 );
