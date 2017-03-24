@@ -116,7 +116,8 @@ impl LoggerContext {
 
     /// Creates a new logger, that will log events with the given *source* argument.
     ///
-    /// All loggers are associated with the context used to create them, i.e
+    /// All loggers are associated with the context used to create them, i.e share a single
+    /// underlying service and the filter.
     pub fn create<T>(&self, source: T) -> Logger
         where T: Into<Cow<'static, str>>
     {
