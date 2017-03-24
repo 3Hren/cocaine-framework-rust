@@ -81,8 +81,13 @@ impl Into<isize> for Sev {
 ///
 /// This is an entry point for a logging service in the cocaine.
 ///
-/// Constructing such struct creates a separate thread where the real logging service lives, and
-/// that allows to process all logging events with a single TCP connection.
+/// The `LoggerContext` creates a separate thread where the real logging service with its event
+/// loop lives, and that allows to process all logging events using single TCP connection. The
+/// communication with the context is done using unbounded channel, what makes emitting logging
+/// events just pack-and-send operation.
+///
+/// Note, that the context destruction triggers wait operation until all messages are flushed into
+/// the socket.
 ///
 /// To create the logger object itself, call [`create`][create] method, which accepts an optional
 /// *source* parameter - a short description where a log event came from.
