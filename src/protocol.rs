@@ -1,3 +1,5 @@
+//! Contains protocol-specific helpers for deserialization and error handling.
+
 use std::fmt::{self, Display, Formatter};
 
 use serde::{Deserialize, Deserializer};
