@@ -18,6 +18,7 @@ serde = "0.9"
 serde_derive = "0.9"
 nix = "*"
 tokio-core = "0.1"
+tokio-io = "0.1"
 mio = "0.6"
 
 [dev-dependencies]

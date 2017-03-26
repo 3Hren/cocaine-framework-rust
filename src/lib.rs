@@ -12,6 +12,7 @@ extern crate rmp;
 extern crate rmp_serde as rmps;
 extern crate rmpv;
 extern crate tokio_core;
+extern crate tokio_io;
 extern crate nix;
 extern crate libc;
 
@@ -33,9 +34,9 @@ use futures::sync::mpsc;
 
 use serde::Serialize;
 
-use tokio_core::io::Window;
 use tokio_core::net::TcpStream;
 use tokio_core::reactor::Handle;
+use tokio_io::io::Window;
 
 use rmpv::ValueRef;
 use rmpv::decode::read_value_ref;
