@@ -49,6 +49,22 @@ impl Builder<Resolver> {
         self.resolver = Resolver::new(locator);
         self
     }
+
+    /// Sets memory limit in bytes for internal buffers.
+    ///
+    /// Normally cocaine-runtime must read all incoming events as fast as possible no matter what.
+    /// However, especially for logging service, sometimes the client can overflow the TCP window,
+    /// which leads to readable stream overload. As a result - we start to buffering incoming
+    /// events more and more, and it may potentially lead to OOM killer coming.
+    ///
+    /// By specifying this option we set the internal memory limit so every new either invocation
+    /// or push event, that will overflow the specified limit, will be rejected
+    /// with `MemoryOverflow` error code and this is guaranteed that those bytes won't be written
+    /// into the socket until retried.
+    pub fn memory_limit(self, _nbytes: usize) -> Self {
+        // TODO: To allow this we must return a future from `Sender::send`.
+        unimplemented!();
+    }
 }
 
 impl<T> Builder<T> {
