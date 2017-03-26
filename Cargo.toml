@@ -13,7 +13,7 @@ log = "0.3"
 libc = "0.2"
 rmp = "0.8.5"
 rmp-serde = "0.12.2"
-rmpv = { version = "0.3.3", path = "../rmp/rmpv", features = ["with-serde"] }
+rmpv = { version = "0.3.3", features = ["with-serde"] }
 serde = "0.9"
 serde_derive = "0.9"
 nix = "*"
