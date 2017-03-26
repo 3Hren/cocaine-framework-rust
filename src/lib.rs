@@ -54,6 +54,10 @@ use self::frame::Frame;
 pub use self::service::{App, Builder, Locator};
 
 /// Receiver part of every multiplexed non-mute request performed with a service.
+///
+/// It is guaranteed that at least one of the [`process`][process] or [`discard`][discard] methods
+/// will be called at least once during a channel lifetime.
+/// Note, that [`discard`][discard] method can be called no more than once.
 pub trait Dispatch: Send {
     /// Processes a new incoming message from a service.
     ///
@@ -61,9 +65,9 @@ pub trait Dispatch: Send {
     /// channel with message type and arguments provided. Usually the next step performed is
     /// arguments deserialization using [`deserialize`][deserialize] function.
     ///
-    /// Passing `Some(..)` as a result type forces the multiplexor to reregister either new or the
+    /// Passing `Some(..)` as a result type forces the multiplexer to reregister either new or the
     /// same `Dispatch` for processing new messages from the same channel again. Returning `None`
-    /// terminates processing.
+    /// terminates channel processing.
     ///
     /// [deserialize]: protocol/fn.deserialize.html
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>>;
