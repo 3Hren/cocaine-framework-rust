@@ -59,6 +59,9 @@ pub use self::service::{App, Builder, Locator};
 /// It is guaranteed that at least one of the [`process`][process] or [`discard`][discard] methods
 /// will be called at least once during a channel lifetime.
 /// Note, that [`discard`][discard] method can be called no more than once.
+///
+/// [process]: #method.process
+/// [discard]: #method.discard
 pub trait Dispatch: Send {
     /// Processes a new incoming message from a service.
     ///
