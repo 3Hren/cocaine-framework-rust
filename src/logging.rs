@@ -226,6 +226,9 @@ impl Logger {
 }
 
 /// Severity filter handle.
+///
+/// A `Filter` allows to configure the severity level threshold for logging events. All events with
+/// severity less than the specified will be rejected immediately.
 #[derive(Clone, Debug)]
 pub struct Filter {
     sev: Arc<AtomicIsize>,
