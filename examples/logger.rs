@@ -3,7 +3,7 @@
 use cocaine::logging::{LoggerContext, Sev};
 
 fn main() {
-    let ctx = LoggerContext::new();
+    let ctx = LoggerContext::default();
     let log = ctx.create("proxy/access");
 
     // The simpliest message.

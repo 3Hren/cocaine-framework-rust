@@ -13,6 +13,8 @@ use tokio_core::reactor::Core;
 
 use Service;
 
+const DEFAULT_LOGGING_NAME: &'static str = "logging";
+
 enum Event {
     Write(Vec<u8>),
     Close,
@@ -24,12 +26,12 @@ struct Inner {
 }
 
 impl Inner {
-    fn new(tx: mpsc::UnboundedSender<Event>, rx: mpsc::UnboundedReceiver<Event>) -> Self {
+    fn new(name: Cow<'static, str>, tx: mpsc::UnboundedSender<Event>, rx: mpsc::UnboundedReceiver<Event>) -> Self {
         let thread = thread::spawn(move || {
             let mut core = Core::new().expect("failed to initialize logger event loop");
             let handle = core.handle();
 
-            let service = Service::new("logging", &handle);
+            let service = Service::new(name, &handle);
 
             let future = rx.and_then(|event| {
                 match event {
@@ -99,19 +101,49 @@ impl Into<isize> for Sev {
 #[derive(Clone)]
 pub struct LoggerContext {
     tx: mpsc::UnboundedSender<Event>,
+    name: Cow<'static, str>,
     inner: Arc<Inner>,
     filter: Filter,
 }
 
 impl LoggerContext {
-    /// Constructs a new logger context.
-    pub fn new() -> Self {
+    /// Constructs a new logger context with the given name, that is used as a logging service's
+    /// name.
+    ///
+    /// # Warning
+    ///
+    /// Beware of connecting to a service, which name is just occasionally equals with the specified
+    /// one. Doing so will probably lead to reconnection after each request because of framing
+    /// errors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cocaine::logging::LoggerContext;
+    ///
+    /// let log = LoggerContext::default();
+    /// assert_eq!("logging", log.name());
+    ///
+    /// let log = LoggerContext::new("logging::v2");
+    /// assert_eq!("logging::v2", log.name());
+    /// ```
+    pub fn new<N>(name: N) -> Self
+        where N: Into<Cow<'static, str>>
+    {
+        let name = name.into();
+
         let (tx, rx) = mpsc::unbounded();
         Self {
             tx: tx.clone(),
-            inner: Arc::new(Inner::new(tx, rx)),
+            name: name.clone(),
+            inner: Arc::new(Inner::new(name, tx, rx)),
             filter: Filter { sev: Arc::new(AtomicIsize::new(0)) },
         }
+    }
+
+    /// Returns the associated logging service's name given at construction time.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Creates a new logger, that will log events with the given *source* argument.
@@ -122,8 +154,8 @@ impl LoggerContext {
         where T: Into<Cow<'static, str>>
     {
         Logger {
-            source: source.into(),
             parent: self.clone(),
+            source: source.into(),
         }
     }
 
@@ -136,9 +168,16 @@ impl LoggerContext {
     }
 }
 
+impl Default for LoggerContext {
+    fn default() -> Self {
+        LoggerContext::new(DEFAULT_LOGGING_NAME)
+    }
+}
+
 impl Debug for LoggerContext {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
         fmt.debug_struct("LoggerContext")
+            .field("name", &self.name)
             .field("filter", &self.filter.get())
             .finish()
     }
@@ -151,13 +190,18 @@ impl Debug for LoggerContext {
 /// [log!]: ../macro.log.html
 #[derive(Debug)]
 pub struct Logger {
-    source: Cow<'static, str>,
     parent: LoggerContext,
+    source: Cow<'static, str>,
 }
 
 impl Logger {
-    /// Returns a logger name, that is used as a *source* parameter.
+    /// Returns the associated logging service's name given at construction time.
     pub fn name(&self) -> &str {
+        self.parent.name()
+    }
+
+    /// Returns a logger name, that is used as a *source* parameter.
+    pub fn source(&self) -> &str {
         &self.source
     }
 
@@ -173,7 +217,7 @@ impl Logger {
     ///
     /// Do not use this method directly, use [`log!`][log!] macro instead. Violating this rule may
     /// lead to repeatedly disconnection from the real logging service due to framing error. The
-    /// reason - a `buf` argument must be properly encoded.
+    /// reason is - a `buf` argument must be properly encoded.
     ///
     /// [log!]: ../macro.log.html
     pub fn __emit(&self, buf: Vec<u8>) {
@@ -209,7 +253,7 @@ macro_rules! log (
         let sev: isize = $sev.into();
 
         if sev >= $log.filter().get() {
-            let buf = rmps::to_vec(&(sev, $log.name(), format!($fmt, $($args)*), ($((stringify!($name), &$val)),+))).unwrap();
+            let buf = rmps::to_vec(&(sev, $log.source(), format!($fmt, $($args)*), ($((stringify!($name), &$val)),+))).unwrap();
             $log.__emit(buf);
         }
     }};
@@ -219,7 +263,7 @@ macro_rules! log (
         let sev: isize = $sev.into();
 
         if sev >= $log.filter().get() {
-            let buf = rmps::to_vec(&(sev, $log.name(), format!($fmt, $($args)*))).unwrap();
+            let buf = rmps::to_vec(&(sev, $log.source(), format!($fmt, $($args)*))).unwrap();
             $log.__emit(buf);
         }
     }};
