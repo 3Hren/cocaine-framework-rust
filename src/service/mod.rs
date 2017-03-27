@@ -14,7 +14,7 @@ mod locator;
 pub use self::app::{App, Streaming};
 pub use self::locator::Locator;
 
-const LOCATOR_NAME: &'static str = "locator";
+const LOCATOR_NAME: &str = "locator";
 
 pub struct Builder<T> {
     name: Cow<'static, str>,
