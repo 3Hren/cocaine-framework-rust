@@ -35,6 +35,7 @@ use futures::sync::mpsc;
 use serde::Serialize;
 
 use tokio_core::net::TcpStream;
+pub use tokio_core::reactor::Core;
 use tokio_core::reactor::Handle;
 use tokio_io::io::Window;
 
