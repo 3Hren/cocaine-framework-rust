@@ -521,11 +521,15 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
                     break;
                 }
                 Err(err) => {
-                    error!("WTF: {:?}", err);
-                    // TODO: Probably we shouldn't return here even if reader part was shut down
-                    // to be able to write entirely.
-                    // TODO: Toggle `CloseRead` flag.
-                    unimplemented!();
+                    error!("failed to read from the socket: {:?}", err);
+
+                    self.state |= CLOSE_RECV;
+
+                    let e = io::Error::last_os_error().into();
+                    for (.., dispatch) in self.dispatches.drain() {
+                        dispatch.discard(&e);
+                    }
+                    return Err(err.into());
                 }
             }
         }
