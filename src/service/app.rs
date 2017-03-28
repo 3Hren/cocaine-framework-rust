@@ -28,7 +28,9 @@ impl Dispatch for AppDispatch {
             }
         };
 
-        drop(self.tx.send(result));
+        if self.tx.send(result).is_err() {
+            return None;
+        }
 
         if recurse {
             Some(self)
