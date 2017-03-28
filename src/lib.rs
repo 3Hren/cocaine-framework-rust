@@ -1009,14 +1009,17 @@ impl Service {
     /// Constructs a new `Service` with a given name.
     ///
     /// This will not perform a connection attempt until required - both name resolution and
-    /// connection will be performed on demand. You can call `connect()` method for fine-grained
-    /// control.
+    /// connection will be performed on demand, but you can still call [`connect`][connect] method
+    /// to perform connection attempt.
     ///
-    /// For more fine-grained service configuration use `cocaine::service::Builder` instead.
+    /// For more fine-grained service configuration use [`Builder`][builder] instead.
+    ///
+    /// [connect]: #method.connect
+    /// [builder]: struct.Builder.html
     pub fn new<N>(name: N, handle: &Handle) -> Self
         where N: Into<Cow<'static, str>>
     {
-        Builder::new(name, handle.clone()).build()
+        Builder::new(name).build(handle)
     }
 
     /// Returns service name.

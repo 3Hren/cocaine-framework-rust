@@ -16,41 +16,116 @@ pub use self::locator::Locator;
 
 const LOCATOR_NAME: &str = "locator";
 
-pub struct Builder<T> {
-    name: Cow<'static, str>,
-    handle: Handle,
-    resolver: T,
+/// Resolve configuration.
+pub trait ResolveBuilder {
+    type Item: Resolve;
+
+    fn build(self, handle: &Handle) -> Self::Item;
 }
 
-impl Builder<Resolver> {
-    /// Constructs a new service builder.
-    pub fn new<N: Into<Cow<'static, str>>>(name: N, handle: Handle) -> Self {
+#[derive(Debug)]
+struct ResolverBuilder {
+    name: Cow<'static, str>,
+    resolver: FixedResolver,
+}
+
+impl ResolveBuilder for ResolverBuilder {
+    type Item = Resolver;
+
+    fn build(self, handle: &Handle) -> Self::Item {
         let locator = Service {
+            name: self.name.clone(),
+            tx: Supervisor::spawn(self.name, self.resolver, handle),
+        };
+
+        Resolver::new(locator)
+    }
+}
+
+/// A resolver builder that returns already preconfigured `Resolve`.
+#[derive(Debug)]
+pub struct PreparedResolver<R> {
+    resolver: R,
+}
+
+impl<R: Resolve> ResolveBuilder for PreparedResolver<R> {
+    type Item = R;
+
+    fn build(self, _handle: &Handle) -> Self::Item {
+        self.resolver
+    }
+}
+
+/// Service configuration. Provides detailed control over the properties and behavior of new
+/// services.
+///
+/// Uses `Locator` as a service name resolver by default.
+///
+/// # Examples
+///
+/// ```
+/// use cocaine::{Builder, Core};
+///
+/// let core = Core::new().unwrap();
+///
+/// let service = Builder::new("storage")
+///     .build(&core.handle());
+///
+/// assert_eq!("storage", service.name());
+/// ```
+pub struct Builder<T> {
+    name: Cow<'static, str>,
+    resolve_builder: T,
+}
+
+impl Builder<ResolverBuilder> {
+    /// Constructs a new service builder, which will build a `Service` with the given name.
+    pub fn new<N: Into<Cow<'static, str>>>(name: N) -> Self {
+        let resolver = ResolverBuilder {
             name: LOCATOR_NAME.into(),
-            tx: Supervisor::spawn(LOCATOR_NAME.into(), FixedResolver::default(), &handle),
+            resolver: FixedResolver::default(),
         };
 
         Builder {
             name: name.into(),
-            handle: handle,
-            resolver: Resolver::new(locator),
+            resolve_builder: resolver,
         }
     }
 
+    /// Sets the `Locator` resolver endpoints.
+    ///
+    /// By default `[::]:10053` address is used to resolve the `Locator` service and it can be
+    /// changed using this method. If multiple endpoints are specified the resolver will try to
+    /// connect to each of them in a loop, breaking after the connection establishment.
+    ///
+    /// # Note
+    ///
+    /// These endpoints are used only for `Locator` resolving. The `Service` resolution is done
+    /// through the `Locator` unless `FixedResolver` specified using [`resolver`][resolver] method.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    ///
+    /// use cocaine::{Builder, Core};
+    ///
+    /// let core = Core::new().unwrap();
+    ///
+    /// let service = Builder::new("storage")
+    ///     .locator_addrs(vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10071)])
+    ///     .build(&core.handle());
+    /// ```
+    ///
+    /// [resolver]: #method.resolver
     pub fn locator_addrs<E>(mut self, addrs: E) -> Self
         where E: IntoIterator<Item = SocketAddr>
     {
-        let resolve = FixedResolver::new(addrs.into_iter().collect());
-        let locator = Service {
-            name: LOCATOR_NAME.into(),
-            tx: Supervisor::spawn(LOCATOR_NAME.into(), resolve, &self.handle),
-        };
-
-        self.resolver = Resolver::new(locator);
+        self.resolve_builder.resolver = FixedResolver::new(addrs.into_iter().collect());
         self
     }
 
-    /// Sets memory limit in bytes for internal buffers.
+    /// Sets the memory limit in bytes for internal buffers.
     ///
     /// Normally cocaine-runtime must read all incoming events as fast as possible no matter what.
     /// However, especially for logging service, sometimes the client can overflow the TCP window,
@@ -65,23 +140,54 @@ impl Builder<Resolver> {
         // TODO: To allow this we must return a future from `Sender::send`.
         unimplemented!();
     }
+
+    // TODO: Receiver memory_limit.
+    // TODO: Resolve timeout.
 }
 
 impl<T> Builder<T> {
-    pub fn resolver<R: Resolve>(self, resolver: R) -> Builder<R> {
+    /// Sets the resolver, that is used for name resolution.
+    ///
+    /// By default name resolution via the `Locator` is used, but sometimes more detailed control
+    /// is required.
+    ///
+    /// # Examples
+    ///
+    /// This example demonstrates how to build a `Service`, which will always try to connect to a
+    /// fixed endpoint at `127.0.0.1:32768`.
+    ///
+    /// ```
+    /// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    ///
+    /// use cocaine::{Builder, Core, FixedResolver};
+    ///
+    /// let core = Core::new().unwrap();
+    /// let endpoints = vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 32768)];
+    ///
+    /// let service = Builder::new("storage")
+    ///     .resolver(FixedResolver::new(endpoints))
+    ///     .build(&core.handle());
+    /// ```
+    pub fn resolver<R: Resolve>(self, resolver: R) -> Builder<PreparedResolver<R>> {
         Builder {
             name: self.name,
-            handle: self.handle,
-            resolver: resolver,
+            resolve_builder: PreparedResolver { resolver: resolver },
         }
     }
 }
 
-impl<T: Resolve + 'static> Builder<T> {
-    pub fn build(self) -> Service {
+impl<T: ResolveBuilder + 'static> Builder<T> {
+    /// Consumes this `Builder` yielding a `Service`.
+    ///
+    /// This will not perform a connection attempt until required - both name resolution and
+    /// connection will be performed on demand. You can call [`Service::connect()`][connect] method
+    /// for fine-grained control.
+    ///
+    /// [connect]: ./struct.Service.html#method.connect
+    pub fn build(self, handle: &Handle) -> Service {
         Service {
             name: self.name.clone(),
-            tx: Supervisor::spawn(self.name, self.resolver, &self.handle),
+            tx: Supervisor::spawn(self.name, self.resolve_builder.build(handle), handle),
         }
     }
 }
