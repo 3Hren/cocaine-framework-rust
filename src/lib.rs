@@ -276,7 +276,7 @@ impl From<frame::Error> for MultiplexError {
 ///
 /// The task is considered completed when all of the following conditions are met: no more
 /// events will be delivered from the event source, all pending events are sent and there are
-/// no more dispathes left.
+/// no more dispatches left.
 ///
 /// To match the `Future` contract this future resolves exactly once.
 #[must_use = "futures do nothing unless polled"]
@@ -544,7 +544,7 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
 
     fn poll(&mut self) -> Poll<(), Self::Error> {
         // We guarantee that after this future is finished with I/O error it will have no new
-        // events. However to be able to gracefully finish all dispatches or sender obsersers we
+        // events. However to be able to gracefully finish all dispatches or sender observers we
         // move ownership of this object into the event loop.
 
         if !self.state.contains(CLOSE_SEND) {
