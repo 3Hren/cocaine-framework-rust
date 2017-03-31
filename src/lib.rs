@@ -81,6 +81,8 @@ pub trait Dispatch: Send {
     ///
     /// The default implementation does nothing.
     fn discard(self: Box<Self>, err: &Error) {
+        // TODO: Unsure about default implementation. It's necessary to catch discarding to properly
+        // match the protocol.
         let _ = err;
     }
 }
@@ -130,6 +132,10 @@ impl Debug for Event {
     }
 }
 
+// TODO: There are common fields: ty and data.
+// TODO: Rename `data` to `args`?
+// TODO: Add headers, possibly as a placeholder right now.
+// TODO: Add `tx` to the `Push`. Future<Result<(), Error>>.
 struct MessageBuf {
     head: Window<[u8; 32]>,
     data: Window<Vec<u8>>,
@@ -746,6 +752,7 @@ impl FixedResolver {
 impl Default for FixedResolver {
     fn default() -> Self {
         FixedResolver {
+            // TODO: Replace with dual-stack endpoints. Test.
             addrs: vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053)],
         }
     }
@@ -757,6 +764,7 @@ impl Resolve for FixedResolver {
     }
 }
 
+/// A `Resolver` that user the `Locator` for name resolution.
 #[derive(Debug)]
 struct Resolver {
     locator: Locator,
@@ -776,6 +784,7 @@ impl Resolve for Resolver {
     }
 }
 
+// TODO: Must be an ADT to be able to pass through channels without boxing.
 #[must_use = "futures do nothing unless polled"]
 struct Supervisor<R> {
     // Service name for resolution and debugging.
