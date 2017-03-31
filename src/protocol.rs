@@ -144,7 +144,7 @@ impl<'a> Deserializer for PackedValue<'a> {
     type Error = super::Error;
 
     #[inline]
-    fn deserialize<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
         where V: Visitor
     {
         unimplemented!();
