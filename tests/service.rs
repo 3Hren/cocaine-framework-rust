@@ -7,7 +7,7 @@ extern crate rmpv;
 extern crate tokio_core;
 
 use std::io::{ErrorKind, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, SocketAddr, IpAddr, Ipv4Addr};
 use std::os::unix::io::IntoRawFd;
 use std::thread;
 
@@ -18,9 +18,13 @@ use tokio_core::reactor::Core;
 
 use cocaine::{Builder, Dispatch, Error, FixedResolver};
 
+fn endpoint() -> SocketAddr {
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0)
+}
+
 #[test]
 fn dispatch_receives_rst() {
-    let sock = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let sock = TcpListener::bind(&endpoint()).unwrap();
     let addr = sock.local_addr().unwrap();
 
     let thread = thread::spawn(move || {
@@ -38,7 +42,7 @@ fn dispatch_receives_rst() {
 
     let mut core = Core::new().unwrap();
 
-    let service = Builder::new("locator")
+    let service = Builder::new("service")
         .resolver(FixedResolver::new(vec![addr]))
         .build(&core.handle());
 
@@ -55,7 +59,7 @@ fn dispatch_receives_rst() {
             match err {
                 &Error::Io(ref err) => {
                     assert!(ErrorKind::ConnectionReset == err.kind() ||
-                        ErrorKind::UnexpectedEof == err.kind());
+                            ErrorKind::UnexpectedEof == err.kind());
                     drop(self.tx.send(()));
                 }
                 err => panic!("expected I/O error, actual {:?}", err),
