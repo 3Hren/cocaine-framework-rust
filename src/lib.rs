@@ -87,48 +87,68 @@ pub trait Dispatch: Send {
     }
 }
 
-enum Event {
-    Call {
-        ty: u64,
-        data: Vec<u8>,
-        dispatch: Box<Dispatch>,
-        tx: oneshot::Sender<Result<u64, Error>>,
-    },
-    Mute {
-        ty: u64,
-        data: Vec<u8>,
-        tx: oneshot::Sender<Result<u64, Error>>,
-    },
-    Push {
-        id: u64,
-        ty: u64,
-        data: Vec<u8>,
-    },
+struct Call {
+    ty: u64,
+    data: Vec<u8>,
+    tx: oneshot::Sender<Result<u64, Error>>, // TODO: Rename to `complete`. Fits better.
+    dispatch: Box<Dispatch>,
 }
 
-impl Debug for Event {
+impl Debug for Call {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match *self {
-            Event::Call { ty, ref data, .. } => {
-                fmt.debug_struct("Event::Call")
-                    .field("ty", &ty)
-                    .field("len", &data.len())
-                    .finish()
-            }
-            Event::Mute { ty, ref data, .. } => {
-                fmt.debug_struct("Event::Mute")
-                    .field("ty", &ty)
-                    .field("len", &data.len())
-                    .finish()
-            }
-            Event::Push { id, ty, ref data } => {
-                fmt.debug_struct("Event::Push")
-                    .field("id", &id)
-                    .field("ty", &ty)
-                    .field("len", &data.len())
-                    .finish()
-            }
-        }
+        fmt.debug_struct("Call")
+            .field("ty", &self.ty)
+            .field("len", &self.data.len())
+            .finish()
+    }
+}
+
+impl Into<MultiplexEvent> for Call {
+    fn into(self) -> MultiplexEvent {
+        MultiplexEvent::Call(self)
+    }
+}
+
+struct Mute {
+    ty: u64,
+    data: Vec<u8>,
+    tx: oneshot::Sender<Result<u64, Error>>, // TODO: Rename to `complete`. Fits better.
+}
+
+impl Debug for Mute {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        fmt.debug_struct("Mute")
+            .field("ty", &self.ty)
+            .field("len", &self.data.len())
+            .finish()
+    }
+}
+
+impl Into<MultiplexEvent> for Mute {
+    fn into(self) -> MultiplexEvent {
+        MultiplexEvent::Mute(self)
+    }
+}
+
+struct Push {
+    id: u64,
+    ty: u64,
+    data: Vec<u8>,
+}
+
+impl Debug for Push {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        fmt.debug_struct("Push")
+            .field("id", &self.id)
+            .field("ty", &self.ty)
+            .field("len", &self.data.len())
+            .finish()
+    }
+}
+
+impl Into<MultiplexEvent> for Push {
+    fn into(self) -> MultiplexEvent {
+        MultiplexEvent::Push(self)
     }
 }
 
@@ -136,6 +156,13 @@ impl Debug for Event {
 // TODO: Rename `data` to `args`?
 // TODO: Add headers, possibly as a placeholder right now.
 // TODO: Add `tx` to the `Push`. Future<Result<(), Error>>.
+#[derive(Debug)]
+enum MultiplexEvent {
+    Call(Call),
+    Mute(Mute),
+    Push(Push),
+}
+
 struct MessageBuf {
     head: Window<[u8; 32]>,
     data: Window<Vec<u8>>,
@@ -224,7 +251,6 @@ impl Message {
         self.notify.complete(val)
     }
 }
-
 
 bitflags! {
     flags Shutdown: u8 {
@@ -331,44 +357,36 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
         }
     }
 
-    fn add_event(&mut self, event: Event) {
+    fn add_event(&mut self, event: MultiplexEvent) {
         match event {
-            Event::Call { ty, data, dispatch, tx } => {
-                self.id += 1;
-
-                let mbuf = MessageBuf::new(self.id, ty, data).unwrap();
-                let notify = Notify::Call(self.id, tx);
-                let message = Message {
-                    mbuf: mbuf,
-                    notify: notify,
-                };
-
-                self.pending.push_back(message);
-
+            MultiplexEvent::Call(Call{ ty, data, dispatch, tx }) => {
+                self.invoke(ty, data, tx);
                 self.dispatches.insert(self.id, dispatch);
             }
-            Event::Mute { ty, data, tx } => {
-                self.id += 1;
-
-                let mbuf = MessageBuf::new(self.id, ty, data).unwrap();
-                let notify = Notify::Call(self.id, tx);
-                let message = Message {
-                    mbuf: mbuf,
-                    notify: notify,
-                };
-
-                self.pending.push_back(message);
+            MultiplexEvent::Mute(Mute { ty, data, tx }) => {
+                self.invoke(ty, data, tx);
             }
-            Event::Push { id, ty, data } => {
-                let mbuf = MessageBuf::new(id, ty, data).unwrap();
-                let message = Message {
-                    mbuf: mbuf,
-                    notify: Notify::Push,
-                };
-
-                self.pending.push_back(message);
+            MultiplexEvent::Push(Push { id, ty, data }) => {
+                self.push(id, ty, data, || Notify::Push)
             }
         }
+    }
+
+    fn invoke(&mut self, ty: u64, data: Vec<u8>, complete: oneshot::Sender<Result<u64, Error>>) {
+        self.id += 1;
+        let id = self.id;
+        self.push(id, ty, data, || Notify::Call(id, complete));
+    }
+
+    fn push<F>(&mut self, id: u64, ty: u64, args: Vec<u8>, f: F)
+        where F: FnOnce() -> Notify
+    {
+        let mbuf = MessageBuf::new(id, ty, args).expect("failed to pack frame header");
+        let message = Message {
+            mbuf: mbuf,
+            notify: f(),
+        };
+        self.pending.push_back(message);
     }
 
     fn send_all(&mut self) -> Result<usize, io::Error> {
@@ -597,12 +615,12 @@ impl Sender {
     {
         let buf = rmps::to_vec(args).unwrap();
 
-        let event = Event::Push {
+        let event = Push {
             id: self.id,
             ty: ty,
             data: buf,
         };
-        self.tx.send(event).unwrap();
+        self.tx.send(Event::Push(event)).unwrap();
     }
 }
 
@@ -784,7 +802,43 @@ impl Resolve for Resolver {
     }
 }
 
-// TODO: Must be an ADT to be able to pass through channels without boxing.
+enum Event {
+    Connect(oneshot::Sender<Result<(), Error>>),
+    Call(Call),
+    Mute(Mute),
+    Push(Push),
+}
+
+impl Debug for Event {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match *self {
+            Event::Connect(..) => {
+                fmt.debug_struct("Event::Connect")
+                    .finish()
+            }
+            Event::Call(Call { ty, ref data, .. }) => {
+                fmt.debug_struct("Event::Call")
+                    .field("ty", &ty)
+                    .field("len", &data.len())
+                    .finish()
+            }
+            Event::Mute(Mute { ty, ref data, .. }) => {
+                fmt.debug_struct("Event::Mute")
+                    .field("ty", &ty)
+                    .field("len", &data.len())
+                    .finish()
+            }
+            Event::Push(Push { id, ty, ref data }) => {
+                fmt.debug_struct("Event::Push")
+                    .field("id", &id)
+                    .field("ty", &ty)
+                    .field("len", &data.len())
+                    .finish()
+            }
+        }
+    }
+}
+
 #[must_use = "futures do nothing unless polled"]
 struct Supervisor<R> {
     // Service name for resolution and debugging.
@@ -793,14 +847,14 @@ struct Supervisor<R> {
     resolver: R,
     // State.
     state: Option<State>,
-    // control: unsync::mpsc::UnboundedReceiver<Control>,
-    // Event channel.
+    // Event channel from users.
     rx: Fuse<mpsc::UnboundedReceiver<Event>>,
     // Event loop notifier.
     handle: Handle,
-    // TODO: connection_observers: VecDeque<Sender<Result<(), Error>>>,
+    // Connection requests.
+    concerns: VecDeque<oneshot::Sender<Result<(), Error>>>,
     // Saved events while not being connected.
-    events: VecDeque<Event>,
+    events: VecDeque<MultiplexEvent>,
 }
 
 impl<R> Supervisor<R> {
@@ -816,12 +870,19 @@ impl<R> Supervisor<R> {
             state: Some(State::Disconnected),
             rx: rx.fuse(),
             handle: handle.clone(),
+            concerns: VecDeque::new(),
             events: VecDeque::new(),
         };
 
         handle.spawn(v.map_err(|err| warn!("stopped supervisor task: {:?}", err)));
 
         tx
+    }
+
+    #[inline]
+    fn push_event<E: Into<MultiplexEvent>>(&mut self, event: E) {
+        self.events.push_back(event.into());
+        debug!("pushed event into the queue, pending: {}", self.events.len());
     }
 }
 
@@ -838,24 +899,21 @@ impl<R: Resolve> Future for Supervisor<R> {
                 // invocation and cancellation events.
                 match self.rx.poll() {
                     Ok(Ready(Some(event))) => {
-                        // TODO: Implement.
-                        // 2 ways:
-                        //  - 2 channels (1 for control events, 1 for RPC).
-                        //      + no match for RPC at not-ready-time.
-                        //      - additional channel.
-                        //  - 1 channel (1 big match).
-                        //      + single channel.
-                        //      - 1 match for each event during extract, 1 during queue flush.
-                        // match event {
-                        //     Event::Connect |
-                        //     Event::Reconnect => {
-                        //
-                        //     }
-                        //     // Event::Disconnect => {} // Do nothing.
-                        //     event => {} // Push and connect.
-                        // }
-                        self.events.push_back(event);
-                        debug!("pushed event into the queue, pending: {}", self.events.len());
+                        match event {
+                            Event::Connect(tx) => {
+                                self.concerns.push_back(tx);
+                            }
+                            // TODO: Event::Disconnect => do nothing, call again.
+                            Event::Call(event) => {
+                                self.push_event(event);
+                            }
+                            Event::Mute(event) => {
+                                self.push_event(event);
+                            }
+                            Event::Push(event) => {
+                                self.push_event(event);
+                            }
+                        }
 
                         self.state = Some(State::Resolving(self.resolver.resolve(&self.name)));
                         debug!("switched state from `disconnected` to `resolving`");
@@ -875,8 +933,21 @@ impl<R: Resolve> Future for Supervisor<R> {
                 loop {
                     match self.rx.poll() {
                         Ok(Ready(Some(event))) => {
-                            self.events.push_back(event);
-                            debug!("pushed event into the queue, pending: {}", self.events.len());
+                            match event {
+                                Event::Connect(tx) => {
+                                    self.concerns.push_back(tx);
+                                }
+                                // TODO: Event::Disconnect => do nothing.
+                                Event::Call(event) => {
+                                    self.push_event(event);
+                                }
+                                Event::Mute(event) => {
+                                    self.push_event(event);
+                                }
+                                Event::Push(event) => {
+                                    self.push_event(event);
+                                }
+                            }
                         }
                         Ok(..) | Err(()) => {
                             // No new events will be delivered, because there are no more senders,
@@ -897,13 +968,18 @@ impl<R: Resolve> Future for Supervisor<R> {
                     }
                     Err(err) => {
                         error!("failed to resolve `{}` service: {}", self.name, err);
+                        for concern in self.concerns.drain(..) {
+                            drop(concern.send(Err(err.clone())));
+                        }
+
                         for event in self.events.drain(..) {
                             match event {
-                                Event::Call { dispatch, .. } => {
+                                MultiplexEvent::Call(Call { dispatch, .. }) => {
+                                    // TODO: Return Error::FailedResolve(err.into()).
                                     dispatch.discard(&err);
                                 }
-                                Event::Mute { .. } |
-                                Event::Push { .. } => {}
+                                MultiplexEvent::Mute(..) |
+                                MultiplexEvent::Push(..) => {}
                             }
                         }
 
@@ -915,8 +991,21 @@ impl<R: Resolve> Future for Supervisor<R> {
                 loop {
                     match self.rx.poll() {
                         Ok(Ready(Some(event))) => {
-                            self.events.push_back(event);
-                            debug!("pushed event into the queue, pending: {}", self.events.len());
+                            match event {
+                                Event::Connect(tx) => {
+                                    self.concerns.push_back(tx);
+                                }
+                                // TODO: Event::Disconnect => do nothing, call again.
+                                Event::Call(event) => {
+                                    self.push_event(event);
+                                }
+                                Event::Mute(event) => {
+                                    self.push_event(event);
+                                }
+                                Event::Push(event) => {
+                                    self.push_event(event);
+                                }
+                            }
                         }
                         Ok(..) | Err(()) => {
                             // No new events will be delivered, because there are no more senders,
@@ -932,6 +1021,10 @@ impl<R: Resolve> Future for Supervisor<R> {
                         sock.set_nodelay(true)?;
 
                         info!("successfully connected to {}", peer);
+                        for concern in self.concerns.drain(..) {
+                            drop(concern.send(Ok(())));
+                        }
+
                         let mut mx = Multiplex::new(sock, peer);
 
                         for event in self.events.drain(..) {
@@ -947,14 +1040,21 @@ impl<R: Resolve> Future for Supervisor<R> {
                     }
                     Err(err) => {
                         error!("failed to connect to `{}` service: {}", self.name, err);
+                        // TODO: Return `Error::FailedConnection(..)` to be able to distinguish
+                        // between connection errors and I/O while being connected.
                         let err = Error::Io(err);
+
+                        for concern in self.concerns.drain(..) {
+                            drop(concern.send(Err(err.clone())));
+                        }
+
                         for event in self.events.drain(..) {
                             match event {
-                                Event::Call { dispatch, .. } => {
+                                MultiplexEvent::Call(Call { dispatch, .. }) => {
                                     dispatch.discard(&err);
                                 }
-                                Event::Mute { .. } |
-                                Event::Push { .. } => {}
+                                MultiplexEvent::Mute(..) |
+                                MultiplexEvent::Push(..) => {}
                             }
                         }
                         self.state = Some(State::Disconnected);
@@ -965,7 +1065,22 @@ impl<R: Resolve> Future for Supervisor<R> {
                 loop {
                     match self.rx.poll() {
                         Ok(Ready(Some(event))) => {
-                            future.add_event(event);
+                            match event {
+                                Event::Connect(tx) => {
+                                    // We're already connected, resolve immediately.
+                                    drop(tx.send(Ok(())));
+                                }
+                                // TODO: Event::Disconnect => disconnect.
+                                Event::Call(event) => {
+                                    future.add_event(MultiplexEvent::Call(event));
+                                }
+                                Event::Mute(event) => {
+                                    future.add_event(MultiplexEvent::Mute(event));
+                                }
+                                Event::Push(event) => {
+                                    future.add_event(MultiplexEvent::Push(event));
+                                }
+                            }
                         }
                         Ok(NotReady) => {
                             break;
@@ -1045,7 +1160,15 @@ impl Service {
     ///
     /// Does nothing, if a service is already connected to some backend.
     pub fn connect(&self) -> impl Future<Item = (), Error = Error> {
-        future::ok(())
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Event::Connect(tx)).unwrap();
+        rx.then(|send| {
+            match send {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(err)) => Err(err),
+                Err(Canceled) => Err(Error::Canceled),
+            }
+        })
     }
 
     /// Disconnects from a remote service without discarding pending requests.
@@ -1082,15 +1205,15 @@ impl Service {
         let buf = rmps::to_vec(args).unwrap();
 
         let (tx, rx) = oneshot::channel();
-        let event = Event::Call {
+        let event = Call {
             ty: ty,
             data: buf,
             dispatch: box dispatch,
             tx: tx
         };
-        self.tx.send(event).unwrap();
-        let tx = self.tx.clone();
+        self.tx.send(Event::Call(event)).unwrap();
 
+        let tx = self.tx.clone();
         rx.then(|send| {
             match send {
                 Ok(Ok(id)) => Ok(Sender::new(id, tx)),
@@ -1118,14 +1241,14 @@ impl Service {
     #[inline]
     fn call_mute_raw(&self, ty: u64, buf: Vec<u8>) -> impl Future<Item = Sender, Error = Error> {
         let (tx, rx) = oneshot::channel();
-        let event = Event::Mute {
+        let event = Mute {
             ty: ty,
             data: buf,
             tx: tx
         };
-        let tx = self.tx.clone();
-        tx.send(event).unwrap();
+        self.tx.send(Event::Mute(event)).unwrap();
 
+        let tx = self.tx.clone();
         rx.then(|send| {
             match send {
                 Ok(Ok(id)) => Ok(Sender::new(id, tx)),
