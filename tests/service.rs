@@ -7,7 +7,7 @@ extern crate rmpv;
 extern crate tokio_core;
 
 use std::io::{ErrorKind, Write};
-use std::net::{TcpListener, SocketAddr, IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::os::unix::io::IntoRawFd;
 use std::thread;
 
