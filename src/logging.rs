@@ -81,6 +81,17 @@ impl Into<isize> for Severity {
     }
 }
 
+impl Display for Severity {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match *self {
+            Severity::Debug => fmt.write_str("debug"),
+            Severity::Info => fmt.write_str("info"),
+            Severity::Warn => fmt.write_str("warn"),
+            Severity::Error => fmt.write_str("error"),
+        }
+    }
+}
+
 /// An error returned when parsing a severity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SeverityParseError;
