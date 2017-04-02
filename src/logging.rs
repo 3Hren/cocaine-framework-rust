@@ -1,7 +1,8 @@
 //! Contains a logging service with helper macro to ease integration with the cloud logging system.
 
 use std::borrow::Cow;
-use std::fmt::{self, Debug, Formatter};
+use std::error;
+use std::fmt::{self, Debug, Display, Formatter};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -83,6 +84,18 @@ impl Into<isize> for Severity {
 /// An error returned when parsing a severity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SeverityParseError;
+
+impl Display for SeverityParseError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        fmt.write_str(error::Error::description(self))
+    }
+}
+
+impl error::Error for SeverityParseError {
+    fn description(&self) -> &str {
+        "invalid severity syntax"
+    }
+}
 
 impl FromStr for Severity {
     type Err = SeverityParseError;
