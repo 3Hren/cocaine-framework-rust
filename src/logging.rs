@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::fmt::{self, Debug, Formatter};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread::{self, JoinHandle};
@@ -13,7 +14,7 @@ use tokio_core::reactor::Core;
 
 use Service;
 
-const DEFAULT_LOGGING_NAME: &'static str = "logging";
+const DEFAULT_LOGGING_NAME: &str = "logging";
 
 enum Event {
     Write(Vec<u8>),
@@ -61,20 +62,38 @@ impl Drop for Inner {
 
 /// Allowed severity levels.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Sev {
+pub enum Severity {
     Debug,
     Info,
     Warn,
     Error,
 }
 
-impl Into<isize> for Sev {
+impl Into<isize> for Severity {
     fn into(self) -> isize {
         match self {
-            Sev::Debug => 0,
-            Sev::Info => 1,
-            Sev::Warn => 2,
-            Sev::Error => 3,
+            Severity::Debug => 0,
+            Severity::Info => 1,
+            Severity::Warn => 2,
+            Severity::Error => 3,
+        }
+    }
+}
+
+/// An error returned when parsing a severity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeverityParseError;
+
+impl FromStr for Severity {
+    type Err = SeverityParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "debug" => Ok(Severity::Debug),
+            "info" => Ok(Severity::Info),
+            "warn" | "warning" => Ok(Severity::Warn),
+            "error" => Ok(Severity::Error),
+            _ => Err(SeverityParseError),
         }
     }
 }
@@ -284,8 +303,5 @@ macro_rules! log (
     }};
     ($log:ident, $sev:expr, $fmt:expr) => {{
         log!($log, $sev, $fmt, [], {})
-    }};
-    (I $log:ident, $fmt:expr) => {{
-        log!($log, Sev::Info, $fmt, [], {})
     }};
 );
