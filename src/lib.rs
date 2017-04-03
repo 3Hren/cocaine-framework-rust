@@ -90,7 +90,7 @@ pub trait Dispatch: Send {
 struct Call {
     ty: u64,
     data: Vec<u8>,
-    tx: oneshot::Sender<Result<u64, Error>>, // TODO: Rename to `complete`. Fits better.
+    complete: oneshot::Sender<Result<u64, Error>>,
     dispatch: Box<Dispatch>,
 }
 
@@ -112,7 +112,7 @@ impl Into<MultiplexEvent> for Call {
 struct Mute {
     ty: u64,
     data: Vec<u8>,
-    tx: oneshot::Sender<Result<u64, Error>>, // TODO: Rename to `complete`. Fits better.
+    complete: oneshot::Sender<Result<u64, Error>>,
 }
 
 impl Debug for Mute {
@@ -359,12 +359,12 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
 
     fn add_event(&mut self, event: MultiplexEvent) {
         match event {
-            MultiplexEvent::Call(Call{ ty, data, dispatch, tx }) => {
-                self.invoke(ty, data, tx);
+            MultiplexEvent::Call(Call{ ty, data, dispatch, complete }) => {
+                self.invoke(ty, data, complete);
                 self.dispatches.insert(self.id, dispatch);
             }
-            MultiplexEvent::Mute(Mute { ty, data, tx }) => {
-                self.invoke(ty, data, tx);
+            MultiplexEvent::Mute(Mute { ty, data, complete }) => {
+                self.invoke(ty, data, complete);
             }
             MultiplexEvent::Push(Push { id, ty, data }) => {
                 self.push(id, ty, data, || Notify::Push)
@@ -1209,7 +1209,7 @@ impl Service {
             ty: ty,
             data: buf,
             dispatch: box dispatch,
-            tx: tx
+            complete: tx
         };
         self.tx.send(Event::Call(event)).unwrap();
 
@@ -1244,7 +1244,7 @@ impl Service {
         let event = Mute {
             ty: ty,
             data: buf,
-            tx: tx
+            complete: tx
         };
         self.tx.send(Event::Mute(event)).unwrap();
 
