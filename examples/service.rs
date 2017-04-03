@@ -16,17 +16,21 @@ use tokio_core::reactor::Core;
 
 use slog::{Logger, DrainExt};
 
-use rmpv::{Value, ValueRef};
+use rmpv::ValueRef;
 
-use cocaine::{Dispatch, Service};
+use cocaine::{Dispatch, Error, Service};
+use cocaine::protocol::{self, Flatten, Primitive};
 
 struct ReadDispatch {
-    tx: oneshot::Sender<(u64, Value)>,
+    tx: oneshot::Sender<Result<String, Error>>,
 }
 
 impl Dispatch for ReadDispatch {
-    fn process(self: Box<Self>, ty: u64, data: &ValueRef) -> Option<Box<Dispatch>> {
-        drop(self.tx.send((ty, data.to_owned())));
+    fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
+        let result = protocol::deserialize::<Primitive<String>>(ty, response)
+            .flatten();
+
+        drop(self.tx.send(result));
         None
     }
 }
@@ -55,5 +59,5 @@ fn main() {
     handle.spawn(future);
 
     let result = core.run(rx).unwrap();
-    println!("{}", result.1);
+    println!("{:?}", result);
 }
