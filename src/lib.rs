@@ -292,7 +292,7 @@ impl From<io::Error> for MultiplexError {
     }
 }
 
-impl<'a> From<rmpv::decode::Error> for MultiplexError {
+impl From<rmpv::decode::Error> for MultiplexError {
     fn from(err: rmpv::decode::Error) -> Self {
         MultiplexError::InvalidProtocol(err.into())
     }
