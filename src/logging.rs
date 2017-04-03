@@ -231,7 +231,7 @@ impl Debug for LoggerContext {
 /// Meant to be used in conjunction with [`log!`][log!] macro.
 ///
 /// [log!]: ../macro.log.html
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Logger {
     parent: LoggerContext,
     source: Cow<'static, str>,
