@@ -83,12 +83,14 @@ impl Into<isize> for Severity {
 
 impl Display for Severity {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match *self {
-            Severity::Debug => fmt.write_str("debug"),
-            Severity::Info => fmt.write_str("info"),
-            Severity::Warn => fmt.write_str("warn"),
-            Severity::Error => fmt.write_str("error"),
-        }
+        let result = match *self {
+            Severity::Debug => "debug",
+            Severity::Info => "info",
+            Severity::Warn => "warn",
+            Severity::Error => "error",
+        };
+
+        fmt.write_str(result)
     }
 }
 
