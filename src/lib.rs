@@ -1072,13 +1072,13 @@ impl<R: Resolve> Future for Supervisor<R> {
                                 }
                                 // TODO: Event::Disconnect => disconnect.
                                 Event::Call(event) => {
-                                    future.add_event(MultiplexEvent::Call(event));
+                                    future.add_event(event.into());
                                 }
                                 Event::Mute(event) => {
-                                    future.add_event(MultiplexEvent::Mute(event));
+                                    future.add_event(event.into());
                                 }
                                 Event::Push(event) => {
-                                    future.add_event(MultiplexEvent::Push(event));
+                                    future.add_event(event.into());
                                 }
                             }
                         }
