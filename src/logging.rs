@@ -38,10 +38,14 @@ impl Inner {
             let future = rx.and_then(|event| {
                 match event {
                     Event::Write(buf) => {
-                        service.call_mute_raw(0, buf).then(|tx| {
-                            drop(tx);
-                            Ok(())
-                        }).boxed()
+                        // TODO: For unknown reasons this one hangs until external reconnection
+                        // after sending some messages.
+//                        service.call_mute_raw(0, buf).then(|tx| {
+//                            drop(tx);
+//                            Ok(())
+//                        }).boxed()
+                        service.call_mute_raw(0, buf);
+                        future::ok(()).boxed()
                     }
                     Event::Close => future::err(()).boxed()
                 }
