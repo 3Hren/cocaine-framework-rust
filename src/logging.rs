@@ -298,7 +298,7 @@ impl Filter {
 }
 
 #[macro_export]
-macro_rules! log (
+macro_rules! cocaine_log (
     ($log:ident, $sev:expr, $fmt:expr, [$($args:tt)*], {$($name:ident: $val:expr,)+}) => {{
         extern crate rmp_serde as rmps;
 
@@ -320,18 +320,18 @@ macro_rules! log (
         }
     }};
     ($log:ident, $sev:expr, $fmt:expr, {$($name:ident: $val:expr,)*}) => {{
-        log!($log, $sev, $fmt, [], {$($name: $val,)*})
+        cocaine_log!($log, $sev, $fmt, [], {$($name: $val,)*})
     }};
     ($log:ident, $sev:expr, $fmt:expr, [$($args:tt)*]) => {{
-        log!($log, $sev, $fmt, [$($args)*], {})
+        cocaine_log!($log, $sev, $fmt, [$($args)*], {})
     }};
     ($log:ident, $sev:expr, $fmt:expr, $($args:tt)*) => {{
-        log!($log, $sev, $fmt, [$($args)*], {})
+        cocaine_log!($log, $sev, $fmt, [$($args)*], {})
     }};
     (I $log:ident, $fmt:expr, $($args:tt)*) => {{
-        log!($log, Sev::Info, $fmt, [$($args)*], {})
+        cocaine_log!($log, Sev::Info, $fmt, [$($args)*], {})
     }};
     ($log:ident, $sev:expr, $fmt:expr) => {{
-        log!($log, $sev, $fmt, [], {})
+        cocaine_log!($log, $sev, $fmt, [], {})
     }};
 );
