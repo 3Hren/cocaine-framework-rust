@@ -22,12 +22,11 @@ use std::error;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::io::{self, Cursor, ErrorKind, Read, Write};
 use std::mem;
-use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
 use std::ptr;
 
 use futures::{Async, Future, Poll, Stream};
-use futures::future;
 use futures::stream::Fuse;
 use futures::sync::oneshot::{self, Canceled};
 use futures::sync::mpsc;
@@ -48,12 +47,14 @@ mod frame;
 pub mod logging;
 mod net;
 pub mod protocol;
-mod service;
+mod resolve;
+pub mod service;
 mod sys;
 
 use net::connect;
 use self::frame::Frame;
-pub use self::service::{App, Builder, Locator};
+pub use self::resolve::{FixedResolver, Resolve, Resolver};
+pub use self::service::{Builder};
 
 /// Receiver part of every multiplexed non-mute request performed with a service.
 ///
@@ -738,67 +739,6 @@ impl Display for State {
             State::Connecting(..) => write!(fmt, "connecting"),
             State::Running(..) => write!(fmt, "running"),
         }
-    }
-}
-
-pub trait Resolve {
-    fn resolve(&mut self, name: &str) -> Box<Future<Item = Vec<SocketAddr>, Error = Error>>;
-}
-
-/// A no-op resolver, that always returns preliminarily specified endpoints.
-///
-/// Used primarily while resolving a `Locator` itself, but can be also used, when you're sure about
-/// service's location.
-///
-/// The default value returns the default `Locator` endpoints, i.e `["::", 10053]` assuming that
-/// IPv6 is enabled.
-#[derive(Clone, Debug)]
-pub struct FixedResolver {
-    addrs: Vec<SocketAddr>,
-}
-
-impl FixedResolver {
-    /// Constructs a fixed resolver, which will always resolve any service name into the specified
-    /// endpoints.
-    pub fn new(addrs: Vec<SocketAddr>) -> Self {
-        FixedResolver {
-            addrs: addrs,
-        }
-    }
-}
-
-impl Default for FixedResolver {
-    fn default() -> Self {
-        FixedResolver {
-            // TODO: Replace with dual-stack endpoints. Test.
-            addrs: vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053)],
-        }
-    }
-}
-
-impl Resolve for FixedResolver {
-    fn resolve(&mut self, _name: &str) -> Box<Future<Item = Vec<SocketAddr>, Error = Error>> {
-        box future::ok(self.addrs.clone())
-    }
-}
-
-/// A `Resolver` that user the `Locator` for name resolution.
-#[derive(Debug)]
-struct Resolver {
-    locator: Locator,
-}
-
-impl Resolver {
-    fn new(locator: Service) -> Self {
-        Resolver {
-            locator: Locator::new(locator),
-        }
-    }
-}
-
-impl Resolve for Resolver {
-    fn resolve(&mut self, name: &str) -> Box<Future<Item = Vec<SocketAddr>, Error = Error>> {
-        box self.locator.resolve(name).map(|info| info.endpoints().into())
     }
 }
 

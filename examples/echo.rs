@@ -13,7 +13,8 @@ use tokio_core::reactor::Core;
 
 use slog::{Logger, DrainExt};
 
-use cocaine::{App, Service};
+use cocaine::{Service};
+use cocaine::service::App;
 
 fn init() {
     let log = slog_term::streamer().compact().build().fuse();

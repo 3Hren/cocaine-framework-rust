@@ -9,7 +9,7 @@ use {Resolve, Service};
 use super::{FixedResolver, Resolver, Supervisor};
 
 mod app;
-mod locator;
+pub mod locator;
 
 pub use self::app::{App, Streaming};
 pub use self::locator::Locator;
@@ -38,7 +38,7 @@ impl ResolveBuilder for ResolverBuilder {
             tx: Supervisor::spawn(self.name, self.resolver, handle),
         };
 
-        Resolver::new(locator)
+        Resolver::new(Locator::new(locator))
     }
 }
 
