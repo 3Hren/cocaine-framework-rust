@@ -15,8 +15,10 @@ use service::locator::Locator;
 /// [locator]: struct.Locator.html
 /// [resolver]: struct.Resolver.html
 pub trait Resolve {
-    /// Resolves a service name into the network endpoint.
-    fn resolve(&mut self, name: &str) -> Box<Future<Item=Vec<SocketAddr>, Error=Error>>;
+    type Future: Future<Item=Vec<SocketAddr>, Error=Error>;
+
+    /// Resolves a service name into the network endpoints.
+    fn resolve(&mut self, name: &str) -> Self::Future;
 }
 
 /// A no-op resolver, that always returns preliminarily specified endpoints.
@@ -51,8 +53,10 @@ impl Default for FixedResolver {
 }
 
 impl Resolve for FixedResolver {
-    fn resolve(&mut self, _name: &str) -> Box<Future<Item=Vec<SocketAddr>, Error=Error>> {
-        box future::ok(self.addrs.clone())
+    type Future = future::FutureResult<Vec<SocketAddr>, Error>;
+
+    fn resolve(&mut self, _name: &str) -> Self::Future {
+        future::ok(self.addrs.clone())
     }
 }
 
@@ -63,6 +67,7 @@ pub struct Resolver {
 }
 
 impl Resolver {
+    /// Constructs a new `Resolver` using the specified `Locator` for name resolution.
     pub fn new(locator: Locator) -> Self {
         Self {
             locator: locator,
@@ -71,7 +76,9 @@ impl Resolver {
 }
 
 impl Resolve for Resolver {
-    fn resolve(&mut self, name: &str) -> Box<Future<Item=Vec<SocketAddr>, Error=Error>> {
+    type Future = Box<Future<Item=Vec<SocketAddr>, Error=Error>>;
+
+    fn resolve(&mut self, name: &str) -> Self::Future {
         box self.locator.resolve(name).map(|info| info.endpoints().into())
     }
 }

@@ -713,14 +713,14 @@ impl serde::de::Error for Error {
     }
 }
 
-enum State {
+enum State<R: Resolve> {
     Disconnected,
-    Resolving(Box<Future<Item=Vec<SocketAddr>, Error=Error>>),
+    Resolving(R::Future),
     Connecting(Box<Future<Item=TcpStream, Error=io::Error>>),
     Running(Multiplex<TcpStream>),
 }
 
-impl Debug for State {
+impl<R: Resolve> Debug for State<R> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
             State::Disconnected => write!(fmt, "State::Disconnected"),
@@ -731,7 +731,7 @@ impl Debug for State {
     }
 }
 
-impl Display for State {
+impl<R: Resolve> Display for State<R> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
             State::Disconnected => write!(fmt, "disconnected"),
@@ -780,13 +780,13 @@ impl Debug for Event {
 }
 
 #[must_use = "futures do nothing unless polled"]
-struct Supervisor<R> {
+struct Supervisor<R: Resolve> {
     // Service name for resolution and debugging.
     name: Cow<'static, str>,
     // Resolver.
     resolver: R,
     // State.
-    state: Option<State>,
+    state: Option<State<R>>,
     // Event channel from users.
     rx: Fuse<mpsc::UnboundedReceiver<Event>>,
     // Event loop notifier.
@@ -797,10 +797,10 @@ struct Supervisor<R> {
     events: VecDeque<MultiplexEvent>,
 }
 
-impl<R> Supervisor<R> {
+impl<R: Resolve> Supervisor<R> {
     /// Spawns a supervisor that will work inside the given event loop's context.
     fn spawn(name: Cow<'static, str>, resolver: R, handle: &Handle) -> mpsc::UnboundedSender<Event>
-        where R: Resolve + 'static
+        where R: 'static
     {
         let (tx, rx) = mpsc::unbounded();
 
