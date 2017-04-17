@@ -4,11 +4,8 @@ use std::net::{IpAddr, SocketAddr};
 use futures::{Future, Stream};
 use futures::sync::{mpsc, oneshot};
 
-use rmpv::ValueRef;
-
-use {Dispatch, Error, Service};
-use dispatch::{Streaming, StreamingDispatch};
-use protocol::{self, Flatten, Primitive};
+use {Error, Service};
+use dispatch::{PrimitiveDispatch, Streaming, StreamingDispatch};
 
 use flatten_err;
 
@@ -45,66 +42,6 @@ impl Info {
     }
 }
 
-///// A single-shot dispatch that implements primitive protocol and emits either value or error.
-//#[derive(Debug)]
-//pub struct PrimitiveDispatch<T> {
-//    tx: oneshot::Sender<Result<T, Error>>,
-//}
-//
-//impl<T> PrimitiveDispatch<T> {
-//    pub fn new(tx: oneshot::Sender<Result<T, Error>>) -> Self {
-//        Self {
-//            tx: tx,
-//        }
-//    }
-//}
-//
-//impl<T: Deserialize + Send> Dispatch for PrimitiveDispatch<T> {
-//    fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-//        let result = protocol::deserialize::<Primitive<T>>(ty, response)
-//            .flatten();
-//        drop(self.tx.send(result));
-//
-//        None
-//    }
-//
-//    fn discard(self: Box<Self>, err: &Error) {
-//        drop(self.tx.send(Err(err.clone())));
-//    }
-//}
-
-// TODO: Use `PrimitiveDispatch` instead.
-struct ResolveDispatch {
-    tx: oneshot::Sender<Result<Info, Error>>,
-}
-
-impl Dispatch for ResolveDispatch {
-    fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-        let result = protocol::deserialize::<Primitive<ResolveInfo>>(ty, response)
-            .flatten()
-            .map(|ResolveInfo{endpoints, version, methods}|
-        {
-            let endpoints = endpoints.into_iter()
-                .map(|(ip, port)| SocketAddr::new(ip, port))
-                .collect();
-
-            Info {
-                endpoints: endpoints,
-                version: version,
-                methods: methods,
-            }
-        });
-
-        drop(self.tx.send(result));
-
-        None
-    }
-
-    fn discard(self: Box<Self>, err: &Error) {
-        drop(self.tx.send(Err(err.clone())));
-    }
-}
-
 pub type HashRing = Vec<(u64, String)>;
 
 #[derive(Debug)]
@@ -119,11 +56,21 @@ impl Locator {
 
     pub fn resolve(&self, name: &str) -> impl Future<Item = Info, Error = Error> {
         let (tx, rx) = oneshot::channel();
-        let dispatch = ResolveDispatch { tx: tx };
+        let dispatch = PrimitiveDispatch::new(tx);
 
         self.service.call(0, &[name], dispatch);
 
-        rx.then(flatten_err)
+        rx.then(flatten_err).map(|ResolveInfo{endpoints, version, methods}| {
+            let endpoints = endpoints.into_iter()
+                .map(|(ip, port)| SocketAddr::new(ip, port))
+                .collect();
+
+            Info {
+                endpoints: endpoints,
+                version: version,
+                methods: methods,
+            }
+        })
     }
 
     pub fn routing(&self, uuid: &str) ->

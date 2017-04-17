@@ -11,7 +11,7 @@ use super::{FixedResolver, Resolver, Supervisor};
 mod app;
 pub mod locator;
 
-pub use self::app::{App, Streaming};
+pub use self::app::App;
 pub use self::locator::Locator;
 
 const LOCATOR_NAME: &str = "locator";

@@ -1,55 +1,8 @@
 use futures::{self, Future};
 use futures::sync::mpsc::{self, UnboundedReceiver};
 
-use rmpv::ValueRef;
-
-use {Dispatch, Error, Service};
-use protocol::{self, Flatten};
-
-#[derive(Debug)]
-struct AppDispatch {
-    tx: mpsc::UnboundedSender<Streaming<String>>,
-}
-
-impl Dispatch for AppDispatch {
-    fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-        let mut recurse = true;
-        let result = match protocol::deserialize::<protocol::Streaming<String>>(ty, response)
-            .flatten()
-        {
-            Ok(Some(data)) => Streaming::Write(data),
-            Ok(None) => {
-                recurse = false;
-                Streaming::Close
-            }
-            Err(err) => {
-                recurse = false;
-                Streaming::Error(err)
-            }
-        };
-
-        if self.tx.send(result).is_err() {
-            return None;
-        }
-
-        if recurse {
-            Some(self)
-        } else {
-            None
-        }
-    }
-
-    fn discard(self: Box<Self>, err: &Error) {
-        drop(self.tx.send(Streaming::Error(err.clone())))
-    }
-}
-
-#[derive(Debug)]
-pub enum Streaming<T> {
-    Write(T),
-    Error(Error),
-    Close,
-}
+use {Error, Service};
+use dispatch::{Streaming, StreamingDispatch};
 
 #[derive(Debug)]
 pub struct Sender {
@@ -91,7 +44,7 @@ impl App {
     {
         let (tx, rx) = mpsc::unbounded();
 
-        let dispatch = AppDispatch { tx: tx };
+        let dispatch = StreamingDispatch::new(tx);
 
         self.service.call(0, &[event], dispatch)
             .and_then(|sender| {
