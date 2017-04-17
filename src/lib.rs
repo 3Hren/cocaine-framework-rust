@@ -28,8 +28,8 @@ use std::ptr;
 
 use futures::{Async, Future, Poll, Stream};
 use futures::stream::Fuse;
-use futures::sync::oneshot::{self, Canceled};
 use futures::sync::mpsc;
+use futures::sync::oneshot;
 
 use serde::Serialize;
 
@@ -86,6 +86,17 @@ pub trait Dispatch: Send {
         // match the protocol.
         let _ = err;
     }
+}
+
+fn flatten_canceled<F, T, E>(future: F) -> impl Future<Item = T, Error = Error>
+    where F: Future<Item = Result<T, Error>, Error = E>,
+          E: Into<Error>
+{
+    future.then(|res| match res {
+        Ok(Ok(val)) => Ok(val),
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(err.into()),
+    })
 }
 
 struct Call {
@@ -688,6 +699,14 @@ impl From<MultiplexError> for Error {
     }
 }
 
+impl From<oneshot::Canceled> for Error {
+    fn from(err: oneshot::Canceled) -> Self {
+        match err {
+            oneshot::Canceled => Error::Canceled
+        }
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
         match *self {
@@ -1102,13 +1121,7 @@ impl Service {
     pub fn connect(&self) -> impl Future<Item = (), Error = Error> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Event::Connect(tx)).unwrap();
-        rx.then(|send| {
-            match send {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(err)) => Err(err),
-                Err(Canceled) => Err(Error::Canceled),
-            }
-        })
+        flatten_canceled(rx)
     }
 
     /// Disconnects from a remote service without discarding pending requests.
@@ -1154,13 +1167,8 @@ impl Service {
         self.tx.send(Event::Call(event)).unwrap();
 
         let tx = self.tx.clone();
-        rx.then(|send| {
-            match send {
-                Ok(Ok(id)) => Ok(Sender::new(id, tx)),
-                Ok(Err(err)) => Err(err),
-                Err(Canceled) => Err(Error::Canceled),
-            }
-        })
+
+        flatten_canceled(rx).and_then(|id| Ok(Sender::new(id, tx)))
     }
 
     /// Performs a mute RPC with a specified type and arguments.
@@ -1189,13 +1197,8 @@ impl Service {
         self.tx.send(Event::Mute(event)).unwrap();
 
         let tx = self.tx.clone();
-        rx.then(|send| {
-            match send {
-                Ok(Ok(id)) => Ok(Sender::new(id, tx)),
-                Ok(Err(err)) => Err(err),
-                Err(Canceled) => Err(Error::Canceled),
-            }
-        })
+
+        flatten_canceled(rx).and_then(|id| Ok(Sender::new(id, tx)))
     }
 }
 

@@ -9,6 +9,8 @@ use rmpv::ValueRef;
 use {Dispatch, Error, Service};
 use protocol::{self, Flatten, Primitive};
 
+use flatten_canceled;
+
 #[derive(Debug, Deserialize)]
 pub struct GraphNode {
     event: String,
@@ -89,10 +91,7 @@ impl Locator {
 
         self.service.call(0, &[name], dispatch);
 
-        rx.then(|res| match res {
-            Ok(Ok(vec)) => Ok(vec),
-            Ok(Err(err)) => Err(err),
-            Err(oneshot::Canceled) => Err(Error::Canceled),
-        })
+        flatten_canceled(rx)
+    }
     }
 }
