@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 
-use futures::Future;
-use futures::sync::oneshot;
+use futures::{Future, Stream};
+use futures::sync::{mpsc, oneshot};
 
 use rmpv::ValueRef;
 
 use {Dispatch, Error, Service};
+use dispatch::{Streaming, StreamingDispatch};
 use protocol::{self, Flatten, Primitive};
 
-use flatten_canceled;
+use flatten_err;
 
 #[derive(Debug, Deserialize)]
 pub struct GraphNode {
@@ -44,6 +45,35 @@ impl Info {
     }
 }
 
+///// A single-shot dispatch that implements primitive protocol and emits either value or error.
+//#[derive(Debug)]
+//pub struct PrimitiveDispatch<T> {
+//    tx: oneshot::Sender<Result<T, Error>>,
+//}
+//
+//impl<T> PrimitiveDispatch<T> {
+//    pub fn new(tx: oneshot::Sender<Result<T, Error>>) -> Self {
+//        Self {
+//            tx: tx,
+//        }
+//    }
+//}
+//
+//impl<T: Deserialize + Send> Dispatch for PrimitiveDispatch<T> {
+//    fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
+//        let result = protocol::deserialize::<Primitive<T>>(ty, response)
+//            .flatten();
+//        drop(self.tx.send(result));
+//
+//        None
+//    }
+//
+//    fn discard(self: Box<Self>, err: &Error) {
+//        drop(self.tx.send(Err(err.clone())));
+//    }
+//}
+
+// TODO: Use `PrimitiveDispatch` instead.
 struct ResolveDispatch {
     tx: oneshot::Sender<Result<Info, Error>>,
 }
@@ -75,6 +105,8 @@ impl Dispatch for ResolveDispatch {
     }
 }
 
+pub type HashRing = Vec<(u64, String)>;
+
 #[derive(Debug)]
 pub struct Locator {
     service: Service,
@@ -91,7 +123,15 @@ impl Locator {
 
         self.service.call(0, &[name], dispatch);
 
-        flatten_canceled(rx)
+        rx.then(flatten_err)
     }
+
+    pub fn routing(&self, uuid: &str) ->
+        impl Stream<Item = Streaming<HashMap<String, HashRing>>, Error = ()>
+    {
+        let (tx, rx) = mpsc::unbounded();
+        let dispatch = StreamingDispatch::new(tx);
+        self.service.call(5, &[uuid], dispatch);
+        rx
     }
 }

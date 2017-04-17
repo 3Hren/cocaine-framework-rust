@@ -43,6 +43,7 @@ use rmpv::decode::read_value_ref;
 
 use Async::*;
 
+mod dispatch;
 mod frame;
 pub mod logging;
 mod net;
@@ -88,15 +89,17 @@ pub trait Dispatch: Send {
     }
 }
 
-fn flatten_canceled<F, T, E>(future: F) -> impl Future<Item = T, Error = Error>
-    where F: Future<Item = Result<T, Error>, Error = E>,
-          E: Into<Error>
+/// Helper mapping function that is used in conjunction with `then` combinator when returning
+/// oneshot sender to move `oneshot::Canceled` error into the standard one while unwrapping the
+/// nested error.
+fn flatten_err<T, E>(result: Result<Result<T, Error>, E>) -> Result<T, Error>
+    where E: Into<Error>
 {
-    future.then(|res| match res {
-        Ok(Ok(val)) => Ok(val),
-        Ok(Err(err)) => Err(err),
-        Err(err) => Err(err.into()),
-    })
+    match result {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(e.into()),
+    }
 }
 
 struct Call {
@@ -1121,7 +1124,7 @@ impl Service {
     pub fn connect(&self) -> impl Future<Item = (), Error = Error> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Event::Connect(tx)).unwrap();
-        flatten_canceled(rx)
+        rx.then(flatten_err)
     }
 
     /// Disconnects from a remote service without discarding pending requests.
@@ -1168,7 +1171,7 @@ impl Service {
 
         let tx = self.tx.clone();
 
-        flatten_canceled(rx).and_then(|id| Ok(Sender::new(id, tx)))
+        rx.then(flatten_err).and_then(|id| Ok(Sender::new(id, tx)))
     }
 
     /// Performs a mute RPC with a specified type and arguments.
@@ -1198,7 +1201,7 @@ impl Service {
 
         let tx = self.tx.clone();
 
-        flatten_canceled(rx).and_then(|id| Ok(Sender::new(id, tx)))
+        rx.then(flatten_err).and_then(|id| Ok(Sender::new(id, tx)))
     }
 }
 
