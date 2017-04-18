@@ -38,12 +38,12 @@ impl Unicorn {
     /// which will return the actual list of children on each child creation or deletion. Other
     /// operations, such as children mutation, are not the subject of this method.
     pub fn children_subscribe<'a>(&self, path: &'a str) ->
-        impl Future<Item = (Close, impl Stream<Item = Streaming<(Version, Vec<String>)>, Error = ()> + 'a), Error = Error> + 'a
+        impl Future<Item = (Close, impl Stream<Item = Streaming<(Version, Vec<String>)>, Error = Error> + 'a), Error = Error> + 'a
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
         self.service.call(1, &[path], dispatch).and_then(|sender| {
-            Ok((Close { sender: sender }, rx))
+            Ok((Close { sender: sender }, rx.map_err(|()| Error::Canceled)))
         })
     }
 }
