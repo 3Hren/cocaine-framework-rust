@@ -8,11 +8,13 @@ use tokio_core::reactor::Handle;
 use {Resolve, Service};
 use super::{FixedResolver, Resolver, Supervisor};
 
-mod app;
+pub mod app;
 pub mod locator;
+pub mod unicorn;
 
 pub use self::app::App;
 pub use self::locator::Locator;
+pub use self::unicorn::Unicorn;
 
 const LOCATOR_NAME: &str = "locator";
 
