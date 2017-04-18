@@ -1,3 +1,17 @@
+//! TODO:
+//! - [ ] Unicorn wrapper.
+//! - [ ] Notify about send events completion.
+//! - [ ] Decide what to do with default `Dispatch::discard` implementation: leave or drop.
+//! - [ ] Infinite buffer growing protection.
+//! - [ ] Implement `local_addr` and `peer_addr` for `Service`.
+//! - [ ] Maybe rename `service::Builder` to `service::ServiceBuilder`.
+//! - [ ] Disconnect event.
+//! - [ ] Generic multiplexer over the socket type, allowing to work with both TCP and Unix sockets.
+//! - [ ] Sending headers.
+//! - [ ] Receiving headers.
+//! - [ ] HPACK encoder.
+//! - [ ] HPACK decoder.
+
 #![feature(box_syntax)]
 #![feature(conservative_impl_trait)]
 
@@ -72,7 +86,7 @@ pub trait Dispatch: Send {
     /// channel with message type and arguments provided. Usually the next step performed is
     /// arguments deserialization using [`deserialize`][deserialize] function.
     ///
-    /// Passing `Some(..)` as a result type forces the multiplexer to reregister either new or the
+    /// Passing `Some(..)` as a result type forces the multiplexer to re-register either new or the
     /// same `Dispatch` for processing new messages from the same channel again. Returning `None`
     /// terminates channel processing.
     ///
@@ -81,10 +95,12 @@ pub trait Dispatch: Send {
 
     /// Discards the dispatch due to some error occurred during receiving the response.
     ///
+    /// This is the terminate state of any dispatch call graph. No more `Dispatch` calls will be
+    /// performed, because this method accepts a boxed dispatch by value.
+    ///
     /// The default implementation does nothing.
     fn discard(self: Box<Self>, err: &Error) {
-        // TODO: Unsure about default implementation. It's necessary to catch discarding to properly
-        // match the protocol.
+        // TODO: Unsure about default implementation. It's necessary to catch discarding to properly match the protocol.
         let _ = err;
     }
 }
@@ -645,6 +661,7 @@ impl Debug for Sender {
     }
 }
 
+/// An `Error` that can occur while working with `Service`.
 #[derive(Debug)]
 pub enum Error {
     /// Operation has been aborted due to I/O error.

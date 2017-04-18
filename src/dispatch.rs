@@ -10,13 +10,17 @@ use rmpv::ValueRef;
 use {Dispatch, Error};
 use protocol::{self, Flatten, Primitive};
 
-/// A single-shot dispatch that implements primitive protocol and emits either value or error.
+/// A single-shot dispatch wraps the given oneshot sender and implements `Primitive` protocol
+/// emitting either value or error.
+///
+/// The majority of services adheres such protocol.
 #[derive(Debug)]
 pub struct PrimitiveDispatch<T> {
     tx: oneshot::Sender<Result<T, Error>>,
 }
 
 impl<T> PrimitiveDispatch<T> {
+    /// Constructs a `PrimitiveDispatch` by wrapping the specified oneshot sender.
     pub fn new(tx: oneshot::Sender<Result<T, Error>>) -> Self {
         Self { tx: tx }
     }
@@ -43,13 +47,15 @@ pub enum Streaming<T> {
     Close,
 }
 
-///
+/// A streaming dispatch wraps the given stream and implements `Streaming` protocol, emitting
+/// either chunk, error or close events.
 #[derive(Debug)]
 pub struct StreamingDispatch<T> {
     tx: mpsc::UnboundedSender<Streaming<T>>,
 }
 
 impl<T> StreamingDispatch<T> {
+    /// Constructs a `StreamingDispatch` by wrapping the specified sender.
     pub fn new(tx: mpsc::UnboundedSender<Streaming<T>>) -> Self {
         Self { tx: tx }
     }
@@ -84,6 +90,7 @@ impl<T: Deserialize + Send + 'static> Dispatch for StreamingDispatch<T> {
     }
 
     fn discard(self: Box<Self>, err: &Error) {
+        // TODO: Should we need to close the stream?
         drop(self.tx.send(Streaming::Error(err.clone())))
     }
 }
