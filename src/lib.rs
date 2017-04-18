@@ -369,7 +369,7 @@ impl<T> Drop for Multiplex<T> {
 const IOVEC_MAX: usize = 64;
 
 fn unexpected_eof() -> io::Error {
-    io::Error::new(ErrorKind::UnexpectedEof, "unexpected EOF")
+    ErrorKind::UnexpectedEof.into()
 }
 
 impl<T: Read + Write + AsRawFd> Multiplex<T> {
