@@ -4,8 +4,18 @@ use futures::sync::mpsc;
 use {Error, Sender, Service};
 use dispatch::{Streaming, StreamingDispatch};
 
+/// A value version.
+///
+/// Unicorn is a strongly-consistent system and requires a some epoch-value to be incremented each
+/// time a mutation action occurs.
 pub type Version = i64;
 
+/// A close handle for some `Unicorn` events.
+///
+/// Some streams are required to be closed to cancel the operation, for example to unlock the node
+/// or to unsubscribe from notifications, otherwise a resource can leak.
+/// This handle does it automatically on destruction. To close the channel manually use `drop`
+/// function from the standard library.
 #[derive(Debug)]
 pub struct Close {
     sender: Sender,
