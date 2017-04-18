@@ -25,6 +25,7 @@ impl Sender {
 
 impl Drop for Sender {
     fn drop(&mut self) {
+        // TODO: Here is the double-close.
         self.inner.send(2, &[0; 0]);
     }
 }
