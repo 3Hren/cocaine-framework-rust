@@ -74,11 +74,11 @@ impl Locator {
     }
 
     pub fn routing(&self, uuid: &str) ->
-        impl Stream<Item = Streaming<HashMap<String, HashRing>>, Error = ()>
+        impl Stream<Item = Streaming<HashMap<String, HashRing>>, Error = Error>
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
         self.service.call(5, &[uuid], dispatch);
-        rx
+        rx.map_err(|()| Error::Canceled)
     }
 }
