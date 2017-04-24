@@ -26,7 +26,7 @@ impl<T> PrimitiveDispatch<T> {
     }
 }
 
-impl<T: Deserialize + Send> Dispatch for PrimitiveDispatch<T> {
+impl<T: for<'de> Deserialize<'de> + Send> Dispatch for PrimitiveDispatch<T> {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
         let result = protocol::deserialize::<Primitive<T>>(ty, response)
             .flatten();
@@ -61,7 +61,7 @@ impl<T> StreamingDispatch<T> {
     }
 }
 
-impl<T: Deserialize + Send + 'static> Dispatch for StreamingDispatch<T> {
+impl<T: for<'de> Deserialize<'de> + Send + 'static> Dispatch for StreamingDispatch<T> {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
         let mut recurse = true;
         let result = match protocol::deserialize::<protocol::Streaming<T>>(ty, response)

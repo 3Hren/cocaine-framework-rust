@@ -5,8 +5,8 @@ use std::fmt::{self, Display, Formatter};
 use serde::{Deserialize, Deserializer};
 use serde::de::Visitor;
 
-use rmpv::{Value, ValueRef};
-use rmpv::ext::{EnumDeserializer};
+use rmpv::ValueRef;
+use rmpv::ext::EnumRefDeserializer;
 
 /// The error type which is returned from a cocaine service.
 #[derive(Debug, Deserialize, Clone)]
@@ -130,47 +130,39 @@ impl<T> Flatten for Result<Streaming<T>, super::Error> {
 
 struct PackedValue<'a>(u64, &'a ValueRef<'a>);
 
-impl<'a> PackedValue<'a> {
-    fn ty(&self) -> u64 {
-        self.0
-    }
-
-    fn to_value(&self) -> Value {
-        self.1.to_owned()
-    }
-}
-
-impl<'a> Deserializer for PackedValue<'a> {
+impl<'de> Deserializer<'de> for PackedValue<'de> {
     type Error = super::Error;
 
     #[inline]
-    fn deserialize<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
-        where V: Visitor
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+        where V: Visitor<'de>
     {
         unimplemented!();
     }
 
     #[inline]
     fn deserialize_enum<V>(self, _name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value, Self::Error>
-        where V: Visitor
+        where V: Visitor<'de>
     {
-        if self.ty() < variants.len() as u64 {
-            let de = EnumDeserializer::new(self.ty() as u32, Some(self.to_value()));
+        let PackedValue(ty, value) = self;
+
+        if ty < variants.len() as u64 {
+            let de = EnumRefDeserializer::new(ty as u32, Some(value));
             visitor.visit_enum(de)
                 .map_err(|err| super::Error::InvalidDataFraming(format!("{}", err)))
         } else {
-            Err(super::Error::InvalidDataFraming(format!("unexpected message with type {}", self.ty())))
+            Err(super::Error::InvalidDataFraming(format!("unexpected message with type {}", ty)))
         }
     }
 
-    forward_to_deserialize! {
+    forward_to_deserialize_any! {
         bool u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 char str string unit
-        tuple seq seq_fixed_size bytes byte_buf map option
-        unit_struct tuple_struct struct newtype_struct struct_field ignored_any
+        tuple seq bytes byte_buf map option
+        unit_struct tuple_struct struct newtype_struct identifier ignored_any
     }
 }
 
 /// Deserializes the dispatch arguments into some user-defined type `D`.
-pub fn deserialize<D: Deserialize>(ty: u64, args: &ValueRef) -> Result<D, super::Error> {
+pub fn deserialize<'de, D: Deserialize<'de>>(ty: u64, args: &'de ValueRef<'de>) -> Result<D, super::Error> {
     Deserialize::deserialize(PackedValue(ty, args))
 }

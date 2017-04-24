@@ -7,15 +7,16 @@ keywords = ["Cocaine"]
 license = "MIT"
 
 [dependencies]
+serde = "1"
+serde_derive = "1"
+
 futures = "0.1"
 bitflags = "0.7"
 log = "0.3"
 libc = "0.2"
 rmp = "0.8.5"
-rmp-serde = "0.12.3"
-rmpv = { version = "0.3.3", features = ["with-serde"] }
-serde = "0.9"
-serde_derive = "0.9"
+rmp-serde = "0.13.0"
+rmpv = { version = "0.4", features = ["with-serde"] }
 nix = "*"
 tokio-core = "0.1"
 tokio-io = "0.1"
