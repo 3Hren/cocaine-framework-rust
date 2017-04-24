@@ -299,13 +299,23 @@ impl Filter {
 
 #[macro_export]
 macro_rules! cocaine_log (
-    ($log:expr, $sev:expr, $fmt:expr, [$($args:tt)*], {$($name:ident: $val:expr,)+}) => {{
+  ($log:expr, $sev:expr, $fmt:expr, [$($args:tt)*], {$name0:ident: $val0:expr, $($name:ident: $val:expr,)+}) => {{
         extern crate rmp_serde as rmps;
 
         let sev: isize = $sev.into();
 
         if sev >= $log.filter().get() {
-            let buf = rmps::to_vec(&(sev, $log.source(), format!($fmt, $($args)*), ($((stringify!($name), &$val)),+))).unwrap();
+            let buf = rmps::to_vec(&(sev, $log.source(), format!($fmt, $($args)*), ((stringify!($name0), &$val0), $((stringify!($name), &$val)),+))).unwrap();
+            $log.__emit(buf);
+        }
+    }};
+    ($log:expr, $sev:expr, $fmt:expr, [$($args:tt)*], {$name:ident: $val:expr,}) => {{
+        extern crate rmp_serde as rmps;
+
+        let sev: isize = $sev.into();
+
+        if sev >= $log.filter().get() {
+            let buf = rmps::to_vec(&(sev, $log.source(), format!($fmt, $($args)*), ((stringify!($name), &$val),))).unwrap();
             $log.__emit(buf);
         }
     }};
