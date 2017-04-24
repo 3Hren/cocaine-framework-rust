@@ -741,9 +741,9 @@ impl Display for Error {
 }
 
 impl error::Error for Error {
-     fn description(&self) -> &str {
-         unimplemented!();
-     }
+    fn description(&self) -> &str {
+        unimplemented!();
+    }
 }
 
 impl serde::de::Error for Error {
@@ -1182,7 +1182,7 @@ impl Service {
             ty: ty,
             data: buf,
             dispatch: box dispatch,
-            complete: tx
+            complete: tx,
         };
         self.tx.send(Event::Call(event)).unwrap();
 
@@ -1212,7 +1212,7 @@ impl Service {
         let event = Mute {
             ty: ty,
             data: buf,
-            complete: tx
+            complete: tx,
         };
         self.tx.send(Event::Mute(event)).unwrap();
 

@@ -3,10 +3,10 @@ extern crate futures;
 extern crate tokio_core;
 extern crate rmpv;
 
-use futures::{future, Future, Stream};
+use futures::{Future, Stream, future};
 use tokio_core::reactor::Core;
 
-use cocaine::{Service};
+use cocaine::Service;
 use cocaine::service::Locator;
 
 fn main() {

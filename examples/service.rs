@@ -14,7 +14,7 @@ use futures::future::Future;
 use futures::sync::oneshot;
 use tokio_core::reactor::Core;
 
-use slog::{Logger, DrainExt};
+use slog::{DrainExt, Logger};
 
 use rmpv::ValueRef;
 
@@ -27,8 +27,7 @@ struct ReadDispatch {
 
 impl Dispatch for ReadDispatch {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-        let result = protocol::deserialize::<Primitive<String>>(ty, response)
-            .flatten();
+        let result = protocol::deserialize::<Primitive<String>>(ty, response).flatten();
 
         drop(self.tx.send(result));
         None

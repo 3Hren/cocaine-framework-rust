@@ -1,7 +1,7 @@
 //! Contains helper dispatches that ease working with common protocols, like `Primitive` or
 //! `Streaming`.
 
-use futures::sync::{oneshot, mpsc};
+use futures::sync::{mpsc, oneshot};
 
 use serde::Deserialize;
 
@@ -65,8 +65,7 @@ impl<T: Deserialize + Send + 'static> Dispatch for StreamingDispatch<T> {
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
         let mut recurse = true;
         let result = match protocol::deserialize::<protocol::Streaming<T>>(ty, response)
-            .flatten()
-        {
+                  .flatten() {
             Ok(Some(data)) => Streaming::Write(data),
             Ok(None) => {
                 recurse = false;
@@ -82,11 +81,7 @@ impl<T: Deserialize + Send + 'static> Dispatch for StreamingDispatch<T> {
             return None;
         }
 
-        if recurse {
-            Some(self)
-        } else {
-            None
-        }
+        if recurse { Some(self) } else { None }
     }
 
     fn discard(self: Box<Self>, err: &Error) {

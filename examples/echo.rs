@@ -8,12 +8,12 @@ extern crate slog_stdlog;
 extern crate slog_term;
 extern crate tokio_core;
 
-use futures::{future, Future, Stream};
+use futures::{Future, Stream, future};
 use tokio_core::reactor::Core;
 
-use slog::{Logger, DrainExt};
+use slog::{DrainExt, Logger};
 
-use cocaine::{Service};
+use cocaine::Service;
 use cocaine::service::App;
 
 fn init() {
@@ -29,16 +29,15 @@ fn main() {
     let mut core = Core::new().unwrap();
     let app = App::new(Service::new("echo-cpp", &core.handle()));
 
-    let future = app.enqueue("ping")
-        .then(|r| {
-            let (tx, rx) = r.unwrap();
-            tx.write("ping");
+    let future = app.enqueue("ping").then(|r| {
+        let (tx, rx) = r.unwrap();
+        tx.write("ping");
 
-            rx.for_each(|chunk| {
-                println!("{:?}", chunk);
-                future::ok(())
-            })
-        });
+        rx.for_each(|chunk| {
+            println!("{:?}", chunk);
+            future::ok(())
+        })
+    });
 
     drop(app); // Just for fun.
     core.run(future).unwrap();
