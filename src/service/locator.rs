@@ -12,7 +12,7 @@ use flatten_err;
 #[derive(Debug, Deserialize)]
 pub struct GraphNode {
     event: String,
-    rx: HashMap<u64, GraphNode>,
+    rx: Option<HashMap<u64, GraphNode>>,
 }
 
 #[derive(Debug, Deserialize)]
