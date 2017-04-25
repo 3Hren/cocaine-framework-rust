@@ -57,7 +57,7 @@ use rmpv::decode::read_value_ref;
 
 use Async::*;
 
-mod dispatch;
+pub mod dispatch;
 mod frame;
 pub mod logging;
 mod net;
