@@ -17,11 +17,15 @@
 
 #![warn(missing_debug_implementations)]
 
-#[macro_use] extern crate bitflags;
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate bitflags;
+#[macro_use]
+extern crate log;
 extern crate futures;
-#[macro_use] extern crate serde;
-#[macro_use] extern crate serde_derive;
+#[macro_use]
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 extern crate rmp;
 extern crate rmp_serde as rmps;
 extern crate rmpv;
@@ -69,7 +73,7 @@ mod sys;
 use net::connect;
 use self::frame::Frame;
 pub use self::resolve::{FixedResolver, Resolve, Resolver};
-pub use self::service::{Builder};
+pub use self::service::Builder;
 
 /// Receiver part of every multiplexed non-mute request performed with a service.
 ///
