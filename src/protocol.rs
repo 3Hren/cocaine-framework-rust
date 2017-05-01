@@ -103,7 +103,9 @@ pub trait Flatten {
     fn flatten(self) -> Result<Self::Item, super::Error>;
 }
 
-impl<T> Flatten for Result<Result<T, Error>, super::Error> {
+impl<T, E> Flatten for Result<Result<T, E>, super::Error>
+    where E: Into<super::Error>
+{
     type Item = T;
 
     fn flatten(self) -> Result<Self::Item, super::Error> {
