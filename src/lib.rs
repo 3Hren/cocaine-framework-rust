@@ -1228,9 +1228,7 @@ impl Service {
 
 impl Debug for Service {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
-        fmt.debug_struct("Service")
-            .field("name", &self.name)
-            .finish()
+        fmt.debug_struct("Service").field("name", &self.name).finish()
     }
 }
 
