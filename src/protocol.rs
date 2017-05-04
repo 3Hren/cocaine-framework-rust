@@ -11,24 +11,24 @@ use rmpv::ext::EnumRefDeserializer;
 /// The error type which is returned from a cocaine service.
 #[derive(Debug, Deserialize, Clone)]
 pub struct Error {
-    error: (u64, u64),
+    error: (i64, i64),
     description: Option<String>,
 }
 
 impl Error {
-    pub fn new(category: u64, code: u64, description: Option<String>) -> Self {
+    pub fn new(category: i64, code: i64, description: Option<String>) -> Self {
         Self {
             error: (category, code),
             description: description,
         }
     }
     /// Returns error category number.
-    pub fn category(&self) -> u64 {
+    pub fn category(&self) -> i64 {
         self.error.0
     }
 
     /// Returns error code number.
-    pub fn code(&self) -> u64 {
+    pub fn code(&self) -> i64 {
         self.error.1
     }
 
