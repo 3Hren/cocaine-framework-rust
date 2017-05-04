@@ -65,7 +65,8 @@ impl<T: for<'de> Deserialize<'de> + Send + 'static> Dispatch for StreamingDispat
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
         let mut recurse = true;
         let result = match protocol::deserialize::<protocol::Streaming<T>>(ty, response)
-                  .flatten() {
+            .flatten()
+        {
             Ok(Some(data)) => Streaming::Write(data),
             Ok(None) => {
                 recurse = false;
@@ -87,5 +88,43 @@ impl<T: for<'de> Deserialize<'de> + Send + 'static> Dispatch for StreamingDispat
     fn discard(self: Box<Self>, err: &Error) {
         // TODO: Should we need to close the stream?
         drop(self.tx.send(Streaming::Error(err.clone())))
+    }
+}
+
+#[derive(Debug)]
+pub struct StreamingDispatch02<T> {
+    tx: mpsc::UnboundedSender<Result<T, Error>>,
+}
+
+impl<T> StreamingDispatch02<T> {
+    /// Constructs a `StreamingDispatch` by wrapping the specified sender.
+    pub fn new(tx: mpsc::UnboundedSender<Result<T, Error>>) -> Self {
+        Self { tx: tx }
+    }
+}
+
+impl<T: for<'de> Deserialize<'de> + Send + 'static> Dispatch for StreamingDispatch02<T> {
+    fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
+        match protocol::deserialize::<protocol::Streaming<T>>(ty, response).flatten() {
+            Ok(Some(data)) => {
+                if self.tx.send(Ok(data)).is_ok() {
+                    Some(self)
+                } else {
+                    None
+                }
+            },
+            Err(err) => {
+                if self.tx.send(Err(err)).is_ok() {
+                    Some(self)
+                } else {
+                    None
+                }
+            }
+            Ok(None) => None,
+        }
+    }
+
+    fn discard(self: Box<Self>, err: &Error) {
+        drop(self.tx.send(Err(err.clone())))
     }
 }

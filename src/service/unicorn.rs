@@ -1,8 +1,15 @@
 use futures::{Future, Stream};
+use futures::future::{BoxFuture};
+use futures::stream::{BoxStream};
 use futures::sync::mpsc;
 
+use rmpv::{self, Value};
+
+use serde::Deserialize;
+
 use {Error, Sender, Service};
-use dispatch::{Streaming, StreamingDispatch};
+use dispatch::StreamingDispatch02;
+use protocol::Flatten;
 
 /// A value version.
 ///
@@ -28,7 +35,7 @@ impl Drop for Close {
 }
 
 /// Wraps a `Service`, providing a convenient interface to the Unicorn service.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Unicorn {
     service: Service,
 }
@@ -42,18 +49,40 @@ impl Unicorn {
         Self { service: service }
     }
 
+    pub fn subscribe<T: for<'de> Deserialize<'de> + Send + 'static>(&self, path: String) ->
+        impl Future<Item=(Close, BoxStream<(T, Version), Error>), Error=Error>
+    {
+        let (tx, rx) = mpsc::unbounded();
+        let dispatch = StreamingDispatch02::new(tx);
+        self.service.call(0, &[path], dispatch).and_then(|sender| {
+            let handle = Close { sender: sender };
+            let stream = rx.map_err(|()| Error::Canceled)
+                .then(Flatten::flatten)
+                .and_then(|(val, version): (Value, Version)| {
+                    match rmpv::ext::deserialize_from(val) {
+                        Ok(val) => Ok((val, version)),
+                        Err(err) => Err(Error::InvalidDataFraming(err.to_string())),
+                    }
+                })
+                .boxed();
+
+            Ok((handle, stream))
+        })
+    }
+
     /// Subscribes for children updates for the node at the specified path.
     ///
     /// This method returns a future, which can be split into a cancellation token and a stream,
     /// which will return the actual list of children on each child creation or deletion. Other
     /// operations, such as children mutation, are not the subject of this method.
-    pub fn children_subscribe<'a>(&self, path: &'a str) ->
-        impl Future<Item = (Close, impl Stream<Item = Streaming<(Version, Vec<String>)>, Error = Error> + 'a), Error = Error> + 'a
+    pub fn children_subscribe(&self, path: String) ->
+//        impl Future<Item = (Close, impl Stream<Item = (Version, Vec<String>), Error = Error> + 'a), Error = Error> + 'a
+        BoxFuture<(Close, BoxStream<(Version, Vec<String>), Error>), Error>
     {
         let (tx, rx) = mpsc::unbounded();
-        let dispatch = StreamingDispatch::new(tx);
+        let dispatch = StreamingDispatch02::new(tx);
         self.service.call(1, &[path], dispatch).and_then(|sender| {
-            Ok((Close { sender: sender }, rx.map_err(|()| Error::Canceled)))
-        })
+            Ok((Close { sender: sender }, rx.map_err(|()| Error::Canceled).then(Flatten::flatten).boxed()))
+        }).boxed()
     }
 }
