@@ -10,7 +10,7 @@ fn main() {
     let mut core = Core::new().unwrap();
     let unicorn = Unicorn::new(Service::new("unicorn", &core.handle()));
 
-    let future = unicorn.children_subscribe("/acl").and_then(|(tx, stream)| {
+    let future = unicorn.children_subscribe("/acl".into()).and_then(|(tx, stream)| {
         stream.take(1).for_each(|nodes| {
             println!("nodes: {:?}", nodes);
             Ok(())
