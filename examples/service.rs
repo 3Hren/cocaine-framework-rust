@@ -32,6 +32,10 @@ impl Dispatch for ReadDispatch {
         drop(self.tx.send(result));
         None
     }
+
+    fn discard(self: Box<Self>, _err: &Error) {
+        drop(self.tx);
+    }
 }
 
 fn init() {

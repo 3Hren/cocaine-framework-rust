@@ -1,7 +1,6 @@
 //! TODO:
 //! - [ ] Unicorn wrapper.
 //! - [ ] Notify about send events completion.
-//! - [ ] Decide what to do with default `Dispatch::discard` implementation: leave or drop.
 //! - [ ] Infinite buffer growing protection.
 //! - [ ] Implement `local_addr` and `peer_addr` for `Service`.
 //! - [ ] Maybe rename `service::Builder` to `service::ServiceBuilder`.
@@ -101,12 +100,7 @@ pub trait Dispatch: Send {
     ///
     /// This is the terminate state of any dispatch call graph. No more `Dispatch` calls will be
     /// performed, because this method accepts a boxed dispatch by value.
-    ///
-    /// The default implementation does nothing.
-    fn discard(self: Box<Self>, err: &Error) {
-        // TODO: Unsure about default implementation. It's necessary to catch discarding to properly match the protocol.
-        let _ = err;
-    }
+    fn discard(self: Box<Self>, err: &Error);
 }
 
 /// Helper mapping function that is used in conjunction with `then` combinator when returning
