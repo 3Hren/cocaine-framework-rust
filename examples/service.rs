@@ -54,13 +54,11 @@ fn main() {
     let service = Service::new("storage", &handle);
 
     let (tx, rx) = oneshot::channel();
-    let future = service.call(0, &vec!["collection", "key"], ReadDispatch { tx: tx })
-        .and_then(|_tx| Ok(()))
-        .then(|_result| Ok(()));
+    let future = service.call(0, &vec!["collection", "key"], vec![], ReadDispatch { tx: tx })
+        .then(|_sender| Ok(()));
 
-    drop(service); // Just for fun.
+    drop(service); // Just for fun to check that all pending request are proceeded until complete.
     handle.spawn(future);
 
-    let result = core.run(rx).unwrap();
-    println!("{:?}", result);
+    core.run(rx).unwrap().unwrap();
 }

@@ -1,12 +1,13 @@
-//! TODO:
-//! - [ ] Unicorn wrapper.
+//! Roadmap:
+//!
+//! - [x] Unicorn wrapper.
+//! - [ ] Send headers.
 //! - [ ] Notify about send events completion.
 //! - [ ] Infinite buffer growing protection.
 //! - [ ] Implement `local_addr` and `peer_addr` for `Service`.
 //! - [ ] Maybe rename `service::Builder` to `service::ServiceBuilder`.
 //! - [ ] Disconnect event.
 //! - [ ] Generic multiplexer over the socket type, allowing to work with both TCP and Unix sockets.
-//! - [ ] Sending headers.
 //! - [ ] Receiving headers.
 //! - [ ] HPACK encoder.
 //! - [ ] HPACK decoder.
@@ -62,6 +63,7 @@ use Async::*;
 
 pub mod dispatch;
 mod frame;
+mod hpack;
 pub mod logging;
 mod net;
 pub mod protocol;
@@ -71,8 +73,11 @@ mod sys;
 
 use net::connect;
 use self::frame::Frame;
+use self::hpack::Header;
 pub use self::resolve::{FixedResolver, Resolve, Resolver};
 pub use self::service::Builder;
+
+const FRAME_LENGTH: u32 = 4;
 
 /// Receiver part of every multiplexed non-mute request performed with a service.
 ///
@@ -119,6 +124,7 @@ fn flatten_err<T, E>(result: Result<Result<T, Error>, E>) -> Result<T, Error>
 struct Call {
     ty: u64,
     data: Vec<u8>,
+    headers: Vec<Header>,
     complete: oneshot::Sender<Result<u64, Error>>,
     dispatch: Box<Dispatch>,
 }
@@ -128,6 +134,7 @@ impl Debug for Call {
         fmt.debug_struct("Call")
             .field("ty", &self.ty)
             .field("len", &self.data.len())
+            .field("headers",&self.headers)
             .finish()
     }
 }
@@ -198,11 +205,13 @@ struct MessageBuf {
 }
 
 impl MessageBuf {
-    fn new(id: u64, ty: u64, data: Vec<u8>) -> Result<Self, io::Error> {
+    fn new(id: u64, ty: u64, mut data: Vec<u8>, headers: Vec<Header>) -> Result<Self, io::Error> {
         let mut head = [0; 32];
         let nlen = MessageBuf::encode_head(&mut head[..], id, ty)?;
         let mut head = Window::new(head);
         head.set_end(nlen);
+
+        MessageBuf::encode_headers(&mut data, headers)?;
 
         let mbuf = MessageBuf {
             head: head,
@@ -214,12 +223,25 @@ impl MessageBuf {
 
     fn encode_head(head: &mut [u8], id: u64, ty: u64) -> Result<usize, io::Error> {
         let mut cur = Cursor::new(&mut head[..]);
-        // TODO: Support HPACK here.
-        rmp::encode::write_array_len(&mut cur, 3)?;
+        rmp::encode::write_array_len(&mut cur, FRAME_LENGTH)?;
         rmp::encode::write_uint(&mut cur, id)?;
         rmp::encode::write_uint(&mut cur, ty)?;
 
         Ok(cur.position() as usize)
+    }
+
+    fn encode_headers<W>(wr: &mut W, headers: Vec<Header>) -> Result<(), io::Error>
+        where W: Write
+    {
+        rmp::encode::write_array_len(wr, headers.len() as u32)?;
+        for header in headers {
+            rmp::encode::write_array_len(wr, 3)?;
+            rmp::encode::write_bool(wr, false)?;
+            rmp::encode::write_bin(wr, &header.name[..])?;
+            rmp::encode::write_bin(wr, &header.data[..])?;
+        }
+
+        Ok(())
     }
 
     fn ulen(&self) -> usize {
@@ -388,29 +410,29 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
 
     fn add_event(&mut self, event: MultiplexEvent) {
         match event {
-            MultiplexEvent::Call(Call{ ty, data, dispatch, complete }) => {
-                self.invoke(ty, data, complete);
+            MultiplexEvent::Call(Call{ ty, data, headers, dispatch, complete }) => {
+                self.invoke(ty, data, headers, complete);
                 self.dispatches.insert(self.id, dispatch);
             }
             MultiplexEvent::Mute(Mute { ty, data, complete }) => {
-                self.invoke(ty, data, complete);
+                self.invoke(ty, data, Vec::new(), complete);
             }
             MultiplexEvent::Push(Push { id, ty, data }) => {
-                self.push(id, ty, data, || Notify::Push)
+                self.push(id, ty, data, Vec::new(), || Notify::Push)
             }
         }
     }
 
-    fn invoke(&mut self, ty: u64, data: Vec<u8>, complete: oneshot::Sender<Result<u64, Error>>) {
+    fn invoke(&mut self, ty: u64, data: Vec<u8>, headers: Vec<Header>, complete: oneshot::Sender<Result<u64, Error>>) {
         self.id += 1;
         let id = self.id;
-        self.push(id, ty, data, || Notify::Call(id, complete));
+        self.push(id, ty, data, headers, || Notify::Call(id, complete));
     }
 
-    fn push<F>(&mut self, id: u64, ty: u64, args: Vec<u8>, f: F)
+    fn push<F>(&mut self, id: u64, ty: u64, data: Vec<u8>, headers: Vec<Header>, f: F)
         where F: FnOnce() -> Notify
     {
-        let mbuf = MessageBuf::new(id, ty, args).expect("failed to pack frame header");
+        let mbuf = MessageBuf::new(id, ty, data, headers).expect("failed to pack frame header");
         let message = Message {
             mbuf: mbuf,
             notify: f(),
@@ -1175,16 +1197,18 @@ impl Service {
     /// For mute RPC use [`call_mute`][call_mute] instead.
     ///
     /// [call_mute]: #method.call_mute
-    pub fn call<T, D>(&self, ty: u64, args: &T, dispatch: D) -> impl Future<Item = Sender, Error = Error>
+    pub fn call<T, D>(&self, ty: u64, args: &T, headers: Vec<Header>, dispatch: D) -> impl Future<Item = Sender, Error = Error>
         where T: Serialize,
               D: Dispatch + 'static
     {
-        let buf = rmps::to_vec(args).unwrap();
+        let buf = rmps::to_vec(args)
+            .expect("failed to serialize arguments");
 
         let (tx, rx) = oneshot::channel();
         let event = Call {
             ty: ty,
             data: buf,
+            headers: headers,
             dispatch: box dispatch,
             complete: tx,
         };

@@ -7,7 +7,7 @@ use rmpv::{self, Value};
 use serde::Deserialize;
 
 use {Error, Sender, Service};
-use dispatch::StreamingDispatch02;
+use dispatch::StreamingDispatch;
 use protocol::Flatten;
 
 /// A value version.
@@ -85,7 +85,7 @@ impl Unicorn {
     /// # Errors
     ///
     /// Any error occurred is transformed to a stream error (note, that until futures 0.2 errors
-    /// are not treated as a stream close).
+    /// are not force the stream to be closed).
     ///
     /// In addition to common errors this method also emits `Error::InvalidDataFraming` on failed
     /// attempt to deserialize the received value into the specified type.
@@ -93,8 +93,8 @@ impl Unicorn {
         impl Future<Item=(Close, BoxStream<(T, Version), Error>), Error=Error>
     {
         let (tx, rx) = mpsc::unbounded();
-        let dispatch = StreamingDispatch02::new(tx);
-        self.service.call(Method::Subscribe.into(), &[path], dispatch).and_then(|sender| {
+        let dispatch = StreamingDispatch::new(tx);
+        self.service.call(Method::Subscribe.into(), &[path], Vec::new(), dispatch).and_then(|sender| {
             let handle = Close { sender: sender };
             let stream = rx.map_err(|()| Error::Canceled)
                 .then(Flatten::flatten)
@@ -119,8 +119,8 @@ impl Unicorn {
         impl Future<Item=(Close, BoxStream<(Version, Vec<String>), Error>), Error=Error> + 'a
     {
         let (tx, rx) = mpsc::unbounded();
-        let dispatch = StreamingDispatch02::new(tx);
-        self.service.call(Method::ChildrenSubscribe.into(), &[path], dispatch).and_then(|sender| {
+        let dispatch = StreamingDispatch::new(tx);
+        self.service.call(Method::ChildrenSubscribe.into(), &[path], Vec::new(), dispatch).and_then(|sender| {
             let handle = Close { sender: sender };
             let stream = rx.map_err(|()| Error::Canceled)
                 .then(Flatten::flatten)

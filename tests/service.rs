@@ -141,7 +141,7 @@ fn dispatch_receives_rst() {
 
     let (tx, rx) = oneshot::channel();
 
-    core.run(service.call(0, &["node"], MockDispatch { tx: tx })).unwrap();
+    core.run(service.call(0, &["node"], Vec::new(), MockDispatch { tx: tx })).unwrap();
     core.run(rx).unwrap();
 
     thread.join().unwrap();

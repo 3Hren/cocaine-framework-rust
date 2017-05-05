@@ -2,7 +2,7 @@ use futures::{self, Future};
 use futures::sync::mpsc::{self, UnboundedReceiver};
 
 use {Error, Service};
-use dispatch::{Streaming, StreamingDispatch};
+use dispatch::StreamingDispatch;
 
 #[derive(Debug)]
 pub struct Sender {
@@ -41,13 +41,13 @@ impl App {
     }
 
     pub fn enqueue<'a>(&self, event: &'a str) ->
-        impl Future<Item=(Sender, UnboundedReceiver<Streaming<String>>), Error=Error> + 'a
+        impl Future<Item = (Sender, UnboundedReceiver<Result<String, Error>>), Error = Error> + 'a
     {
         let (tx, rx) = mpsc::unbounded();
 
         let dispatch = StreamingDispatch::new(tx);
 
-        self.service.call(0, &[event], dispatch)
+        self.service.call(0, &[event], Vec::new(), dispatch)
             .and_then(|sender| {
                 let sender = Sender { inner: sender };
                 futures::future::ok((sender, rx))

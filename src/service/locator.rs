@@ -5,7 +5,8 @@ use futures::{Future, Stream};
 use futures::sync::{mpsc, oneshot};
 
 use {Error, Service};
-use dispatch::{PrimitiveDispatch, Streaming, StreamingDispatch};
+use dispatch::{PrimitiveDispatch, StreamingDispatch};
+use protocol::Flatten;
 
 use flatten_err;
 
@@ -44,21 +45,36 @@ impl Info {
 
 pub type HashRing = Vec<(u64, String)>;
 
-#[derive(Debug)]
+enum Method {
+    Resolve,
+    Routing,
+}
+
+impl Into<u64> for Method {
+    #[inline]
+    fn into(self) -> u64 {
+        match self {
+            Method::Resolve => 0,
+            Method::Routing => 5,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Locator {
     service: Service,
 }
 
 impl Locator {
     pub fn new(service: Service) -> Self {
-        Locator { service: service }
+        Self { service: service }
     }
 
     pub fn resolve(&self, name: &str) -> impl Future<Item = Info, Error = Error> {
         let (tx, rx) = oneshot::channel();
         let dispatch = PrimitiveDispatch::new(tx);
 
-        self.service.call(0, &[name], dispatch);
+        self.service.call(Method::Resolve.into(), &[name], Vec::new(), dispatch);
 
         rx.then(flatten_err).map(|ResolveInfo{endpoints, version, methods}| {
             let endpoints = endpoints.into_iter()
@@ -74,11 +90,11 @@ impl Locator {
     }
 
     pub fn routing(&self, uuid: &str) ->
-        impl Stream<Item = Streaming<HashMap<String, HashRing>>, Error = Error>
+        impl Stream<Item = HashMap<String, HashRing>, Error = Error>
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
-        self.service.call(5, &[uuid], dispatch);
-        rx.map_err(|()| Error::Canceled)
+        self.service.call(Method::Routing.into(), &[uuid], Vec::new(), dispatch);
+        rx.map_err(|()| Error::Canceled).then(Flatten::flatten)
     }
 }
