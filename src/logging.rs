@@ -298,47 +298,154 @@ impl Filter {
 }
 
 #[macro_export]
-macro_rules! cocaine_log (
-  ($log:expr, $sev:expr, $fmt:expr, [$($args:tt)*], {$name0:ident: $val0:expr, $($name:ident: $val:expr,)+}) => {{
+macro_rules! cocaine_log(
+    (__unwrap # {}) => {
+        &[0u8; 0]
+    };
+    (__unwrap # {$($name:ident: $val:expr,)+}) => {
+        ($((stringify!($name), &$val)),+,)
+    };
+    (__execute # {$($args:tt)*}, $src:expr, $sev:expr, $fmt:expr, {$($name:ident: $val:expr,)*}) => {{
         extern crate rmp_serde as rmps;
 
+        rmps::to_vec(&($sev, $src, format!($fmt, $($args)*), cocaine_log!(__unwrap # {$($name: $val,)*})))
+    }};
+    (__split # {$($args:tt)*}, $src:expr, $sev:expr, $fmt:expr, ; {$($name:ident: $val:expr,)*}) => {
+        cocaine_log!(__execute # {$($args)*}, $src, $sev, $fmt, {$($name: $val,)*})
+    };
+    (__split # {$($args:tt)*}, $src:expr, $sev:expr, $fmt:expr, $arg:tt $($kwargs:tt)*) => {
+        cocaine_log!(__split # {$($args)* $arg}, $src, $sev, $fmt, $($kwargs)*)
+    };
+    (__split # {$($args:tt)*}, $src:expr, $sev:expr, $fmt:expr; {$($name:ident: $val:expr,)*}) => {
+        cocaine_log!(__execute # {$($args)*}, $src, $sev, $fmt, {$($name: $val,)*})
+    };
+    (__split # {$($args:tt)*}, $src:expr, $sev:expr, $fmt:expr,) => {
+        cocaine_log!(__execute # {$($args)*}, $src, $sev, $fmt, {})
+    };
+    (__split # {$($args:tt)*}, $src:expr, $sev:expr, $fmt:expr) => {
+        cocaine_log!(__execute # {$($args)*}, $src, $sev, $fmt, {})
+    };
+    (__test # $src:expr, $sev:expr, $($args:tt)*) => {
+        cocaine_log!(__split # {}, $src, $sev, $($args)*)
+    };
+    ($log:expr, $sev:expr, $($args:tt)*) => {{
         let sev: isize = $sev.into();
 
         if sev >= $log.filter().get() {
-            let buf = rmps::to_vec(&(sev, $log.source(), format!($fmt, $($args)*), ((stringify!($name0), &$val0), $((stringify!($name), &$val)),+))).unwrap();
-            $log.__emit(buf);
+            $log.__emit(cocaine_log!(__split # {}, $log.source(), sev, $($args)*).expect("failed to serialize logging event frame"));
         }
-    }};
-    ($log:expr, $sev:expr, $fmt:expr, [$($args:tt)*], {$name:ident: $val:expr,}) => {{
-        extern crate rmp_serde as rmps;
-
-        let sev: isize = $sev.into();
-
-        if sev >= $log.filter().get() {
-            let buf = rmps::to_vec(&(sev, $log.source(), format!($fmt, $($args)*), ((stringify!($name), &$val),))).unwrap();
-            $log.__emit(buf);
-        }
-    }};
-    ($log:expr, $sev:expr, $fmt:expr, [$($args:tt)*], {}) => {{
-        extern crate rmp_serde as rmps;
-
-        let sev: isize = $sev.into();
-
-        if sev >= $log.filter().get() {
-            let buf = rmps::to_vec(&(sev, $log.source(), format!($fmt, $($args)*))).unwrap();
-            $log.__emit(buf);
-        }
-    }};
-    ($log:expr, $sev:expr, $fmt:expr, {$($name:ident: $val:expr,)*}) => {{
-        cocaine_log!($log, $sev, $fmt, [], {$($name: $val,)*})
-    }};
-    ($log:expr, $sev:expr, $fmt:expr, [$($args:tt)*]) => {{
-        cocaine_log!($log, $sev, $fmt, [$($args)*], {})
-    }};
-    ($log:expr, $sev:expr, $fmt:expr, $($args:tt)*) => {{
-        cocaine_log!($log, $sev, $fmt, [$($args)*], {})
-    }};
-    ($log:expr, $sev:expr, $fmt:expr) => {{
-        cocaine_log!($log, $sev, $fmt, [], {})
     }};
 );
+
+#[cfg(test)]
+mod tests {
+    extern crate rmpv;
+
+    use rmpv::Value;
+
+    #[test]
+    fn test_macro_without_args() {
+        let buf = cocaine_log!(__test # "test", 1, "nginx/1.6 configured").unwrap();
+        let expected = Value::Array(vec![
+            Value::from(1),
+            Value::from("test"),
+            Value::from("nginx/1.6 configured"),
+            Value::Array(vec![])
+        ]);
+        assert_eq!(expected, rmpv::decode::read_value(&mut &buf[..]).unwrap());
+    }
+
+    #[test]
+    fn test_macro_with_args() {
+        let buf = cocaine_log!(__test # "test", 1, "{} {} HTTP/1.1 {} {}", "GET", "/static/image.png", 404, 347).unwrap();
+        let expected = Value::Array(vec![
+            Value::from(1),
+            Value::from("test"),
+            Value::from("GET /static/image.png HTTP/1.1 404 347"),
+            Value::Array(vec![])
+        ]);
+        assert_eq!(expected, rmpv::decode::read_value(&mut &buf[..]).unwrap());
+    }
+
+    #[test]
+    fn test_macro_with_attribute() {
+        let buf = cocaine_log!(__test # "test", 1, "nginx/1.6 configured"; {
+            config: "/etc/nginx/nginx.conf",
+        }).unwrap();
+        let expected = Value::Array(vec![
+            Value::from(1),
+            Value::from("test"),
+            Value::from("nginx/1.6 configured"),
+            Value::Array(vec![
+                Value::Array(vec![
+                    Value::from("config"),
+                    Value::from("/etc/nginx/nginx.conf")
+                ])
+            ])
+        ]);
+        assert_eq!(expected, rmpv::decode::read_value(&mut &buf[..]).unwrap());
+    }
+
+    #[test]
+    fn test_macro_with_attributes() {
+        let buf = cocaine_log!(__test # "test", 1, "nginx/1.6 configured"; {
+            config: "/etc/nginx/nginx.conf",
+            elapsed: 42.15,
+        }).unwrap();
+        let expected = Value::Array(vec![
+            Value::from(1),
+            Value::from("test"),
+            Value::from("nginx/1.6 configured"),
+            Value::Array(vec![
+                Value::Array(vec![
+                    Value::from("config"),
+                    Value::from("/etc/nginx/nginx.conf")
+                ]),
+                Value::Array(vec![
+                    Value::from("elapsed"),
+                    Value::from(42.15)
+                ])
+            ])
+        ]);
+        assert_eq!(expected, rmpv::decode::read_value(&mut &buf[..]).unwrap());
+    }
+
+    #[test]
+    fn test_macro_with_args_and_attributes() {
+        let buf = cocaine_log!(__test # "test", 1, "file does not exist: {}", "/var/www/favicon.ico"; {
+            path: "/",
+            cache: true,
+            method: "GET",
+            version: 1.1,
+            protocol: "HTTP",
+        }).unwrap();
+        let expected = Value::Array(vec![
+            Value::from(1),
+            Value::from("test"),
+            Value::from("file does not exist: /var/www/favicon.ico"),
+            Value::Array(vec![
+                Value::Array(vec![
+                    Value::from("path"),
+                    Value::from("/")
+                ]),
+                Value::Array(vec![
+                    Value::from("cache"),
+                    Value::from(true)
+                ]),
+                Value::Array(vec![
+                    Value::from("method"),
+                    Value::from("GET")
+                ]),
+                Value::Array(vec![
+                    Value::from("version"),
+                    Value::from(1.1)
+                ]),
+                Value::Array(vec![
+                    Value::from("protocol"),
+                    Value::from("HTTP")
+                ])
+            ])
+        ]);
+        assert_eq!(expected, rmpv::decode::read_value(&mut &buf[..]).unwrap());
+    }
+}
