@@ -1105,6 +1105,12 @@ impl<R: Resolve> Future for Supervisor<R> {
 ///
 /// Internally it has an asynchronous state machine, which runs in an event loop associated with
 /// the handle given at construction time.
+///
+/// Most time you find out that it's more practical to use convenient service wrappers, like
+/// [`Locator`][Locator], [`Unicorn`][Unicorn] etc.
+///
+/// [Locator]: struct.Locator.html
+/// [Unicorn]: service/unicorn/struct.Unicorn.html
 #[derive(Clone)]
 pub struct Service {
     name: Cow<'static, str>,
