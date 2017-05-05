@@ -1,5 +1,4 @@
 use futures::{Future, Stream};
-use futures::future::{BoxFuture};
 use futures::stream::{BoxStream};
 use futures::sync::mpsc;
 
@@ -34,7 +33,34 @@ impl Drop for Close {
     }
 }
 
+enum Method {
+    Subscribe,
+    ChildrenSubscribe,
+}
+
+impl Into<u64> for Method {
+    #[inline]
+    fn into(self) -> u64 {
+        match self {
+            Method::Subscribe => 0,
+            Method::ChildrenSubscribe => 1,
+        }
+    }
+}
+
 /// Wraps a `Service`, providing a convenient interface to the Unicorn service.
+///
+/// The `Unicorn` service is a Cloud Configuration Service. It provides an ability to save, read
+/// and subscribe for your configuration updates in a strongly-consistent way. Thus all values
+/// have some epoch number to match the version of the value obtained.
+///
+/// A typical use case is to load the configuration at application start-up. Another use case is to
+/// subscribe for configuration updates to be able to be notified on its changes immediately
+/// without explicit polling.
+///
+/// # Warning
+///
+/// Do not use the `Unicorn` as a storage for large files, cluster states or something else big.
 #[derive(Clone, Debug)]
 pub struct Unicorn {
     service: Service,
@@ -49,12 +75,25 @@ impl Unicorn {
         Self { service: service }
     }
 
+    /// Subscribes for updates for the node at the specified path.
+    ///
+    /// This method returns a future, which can be split into a cancellation token and a stream of
+    /// versioned node values. In addition it tries to convert received values into the specified
+    /// `Deserialize` type.
+    ///
+    /// # Errors
+    ///
+    /// Any error occurred is transformed to a stream error (note, that until futures 0.2 errors
+    /// are not treated as a stream close).
+    ///
+    /// In addition to common errors this method also emits `Error::InvalidDataFraming` on failed
+    /// attempt to deserialize the received value into the specified type.
     pub fn subscribe<T: for<'de> Deserialize<'de> + Send + 'static>(&self, path: String) ->
         impl Future<Item=(Close, BoxStream<(T, Version), Error>), Error=Error>
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch02::new(tx);
-        self.service.call(0, &[path], dispatch).and_then(|sender| {
+        self.service.call(Method::Subscribe.into(), &[path], dispatch).and_then(|sender| {
             let handle = Close { sender: sender };
             let stream = rx.map_err(|()| Error::Canceled)
                 .then(Flatten::flatten)
@@ -75,14 +114,17 @@ impl Unicorn {
     /// This method returns a future, which can be split into a cancellation token and a stream,
     /// which will return the actual list of children on each child creation or deletion. Other
     /// operations, such as children mutation, are not the subject of this method.
-    pub fn children_subscribe(&self, path: String) ->
-//        impl Future<Item = (Close, impl Stream<Item = (Version, Vec<String>), Error = Error> + 'a), Error = Error> + 'a
-        BoxFuture<(Close, BoxStream<(Version, Vec<String>), Error>), Error>
+    pub fn children_subscribe<'a>(&self, path: String) ->
+        impl Future<Item=(Close, BoxStream<(Version, Vec<String>), Error>), Error=Error> + 'a
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch02::new(tx);
-        self.service.call(1, &[path], dispatch).and_then(|sender| {
-            Ok((Close { sender: sender }, rx.map_err(|()| Error::Canceled).then(Flatten::flatten).boxed()))
+        self.service.call(Method::ChildrenSubscribe.into(), &[path], dispatch).and_then(|sender| {
+            let handle = Close { sender: sender };
+            let stream = rx.map_err(|()| Error::Canceled)
+                .then(Flatten::flatten)
+                .boxed();
+            Ok((handle, stream))
         }).boxed()
     }
 }
