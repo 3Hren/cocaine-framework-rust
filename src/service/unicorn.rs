@@ -58,9 +58,10 @@ impl Into<u64> for Method {
 /// subscribe for configuration updates to be able to be notified on its changes immediately
 /// without explicit polling.
 ///
-/// # Warning
+/// # Note
 ///
-/// Do not use the `Unicorn` as a storage for large files, cluster states or something else big.
+/// It's not recommended to use the `Unicorn` as a storage for large files, cluster states or
+/// something else big enough - a typical node size must count in kilobytes at max.
 #[derive(Clone, Debug)]
 pub struct Unicorn {
     service: Service,
