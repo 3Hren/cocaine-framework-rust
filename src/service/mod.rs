@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::fmt::{self, Debug, Formatter};
 use std::iter::IntoIterator;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use tokio_core::reactor::Handle;
 
@@ -35,9 +36,12 @@ impl ResolveBuilder for ResolverBuilder {
     type Item = Resolver;
 
     fn build(self, handle: &Handle) -> Self::Item {
+        let addrs = Arc::new(Mutex::new(None));
+
         let locator = Service {
             name: self.name.clone(),
-            tx: Supervisor::spawn(self.name, self.resolver, handle),
+            addrs: addrs.clone(),
+            tx: Supervisor::spawn(self.name, addrs, self.resolver, handle),
         };
 
         Resolver::new(Locator::new(locator))
@@ -187,9 +191,12 @@ impl<T: ResolveBuilder + 'static> Builder<T> {
     ///
     /// [connect]: ./struct.Service.html#method.connect
     pub fn build(self, handle: &Handle) -> Service {
+        let addrs = Arc::new(Mutex::new(None));
+
         Service {
             name: self.name.clone(),
-            tx: Supervisor::spawn(self.name, self.resolve_builder.build(handle), handle),
+            addrs: addrs.clone(),
+            tx: Supervisor::spawn(self.name, addrs, self.resolve_builder.build(handle), handle),
         }
     }
 }

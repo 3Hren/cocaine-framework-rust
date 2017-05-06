@@ -1,7 +1,7 @@
 //! Roadmap:
 //!
 //! - [x] Unicorn wrapper.
-//! - [ ] Send headers.
+//! - [x] Send headers.
 //! - [ ] Notify about send events completion.
 //! - [ ] Infinite buffer growing protection.
 //! - [ ] Implement `local_addr` and `peer_addr` for `Service`.
@@ -43,10 +43,11 @@ use std::mem;
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
 use std::ptr;
+use std::sync::{Arc, Mutex};
 
 use futures::{Async, Future, Poll, Stream};
 use futures::stream::Fuse;
-use futures::sync::mpsc;
+use futures::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;
 
 use serde::Serialize;
@@ -207,9 +208,9 @@ struct MessageBuf {
 impl MessageBuf {
     fn new(id: u64, ty: u64, mut data: Vec<u8>, headers: Vec<Header>) -> Result<Self, io::Error> {
         let mut head = [0; 32];
-        let nlen = MessageBuf::encode_head(&mut head[..], id, ty)?;
+        let head_len = MessageBuf::encode_head(&mut head[..], id, ty)?;
         let mut head = Window::new(head);
-        head.set_end(nlen);
+        head.set_end(head_len);
 
         MessageBuf::encode_headers(&mut data, headers)?;
 
@@ -653,11 +654,11 @@ impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
 
 pub struct Sender {
     id: u64,
-    tx: mpsc::UnboundedSender<Event>,
+    tx: UnboundedSender<Event>,
 }
 
 impl Sender {
-    fn new(id: u64, tx: mpsc::UnboundedSender<Event>) -> Self {
+    fn new(id: u64, tx: UnboundedSender<Event>) -> Self {
         Sender { id: id, tx: tx }
     }
 
@@ -842,12 +843,13 @@ impl Debug for Event {
 struct Supervisor<R: Resolve> {
     // Service name for resolution and debugging.
     name: Cow<'static, str>,
+    addrs: Arc<Mutex<Option<(SocketAddr, SocketAddr)>>>,
     // Resolver.
     resolver: R,
     // State.
     state: Option<State<R>>,
     // Event channel from users.
-    rx: Fuse<mpsc::UnboundedReceiver<Event>>,
+    rx: Fuse<UnboundedReceiver<Event>>,
     // Event loop notifier.
     handle: Handle,
     // Connection requests.
@@ -858,13 +860,14 @@ struct Supervisor<R: Resolve> {
 
 impl<R: Resolve> Supervisor<R> {
     /// Spawns a supervisor that will work inside the given event loop's context.
-    fn spawn(name: Cow<'static, str>, resolver: R, handle: &Handle) -> mpsc::UnboundedSender<Event>
+    fn spawn(name: Cow<'static, str>, addrs: Arc<Mutex<Option<(SocketAddr, SocketAddr)>>>, resolver: R, handle: &Handle) -> UnboundedSender<Event>
         where R: 'static
     {
         let (tx, rx) = mpsc::unbounded();
 
         let v = Supervisor {
             name: name,
+            addrs: addrs,
             resolver: resolver,
             state: Some(State::Disconnected),
             rx: rx.fuse(),
@@ -973,9 +976,10 @@ impl<R: Resolve> Future for Supervisor<R> {
 
                         for event in self.events.drain(..) {
                             match event {
-                                MultiplexEvent::Call(Call { dispatch, .. }) => {
+                                MultiplexEvent::Call(Call { dispatch, complete, .. }) => {
                                     // TODO: Return Error::FailedResolve(err.into()).
                                     dispatch.discard(&err);
+                                    drop(complete.send((Err(err.clone()))));
                                 }
                                 MultiplexEvent::Mute(..) |
                                 MultiplexEvent::Push(..) => {}
@@ -1020,6 +1024,10 @@ impl<R: Resolve> Future for Supervisor<R> {
                         sock.set_nodelay(true)?;
 
                         info!("successfully connected to {}", peer);
+
+                        let local = sock.local_addr()?;
+                        *self.addrs.lock().unwrap() = Some((peer.clone(), local));
+
                         for concern in self.concerns.drain(..) {
                             drop(concern.send(Ok(())));
                         }
@@ -1136,7 +1144,8 @@ impl<R: Resolve> Future for Supervisor<R> {
 #[derive(Clone)]
 pub struct Service {
     name: Cow<'static, str>,
-    tx: mpsc::UnboundedSender<Event>,
+    addrs: Arc<Mutex<Option<(SocketAddr, SocketAddr)>>>,
+    tx: UnboundedSender<Event>,
 }
 
 impl Service {
@@ -1164,6 +1173,9 @@ impl Service {
     /// Connects to the service, performing name resolution and TCP connection establishing.
     ///
     /// Does nothing, if a service is already connected to some backend.
+    ///
+    /// Usually a service connects automatically on demand, however it may be useful to optimize
+    /// away a connection delay by doing pre-connection using this method.
     pub fn connect(&self) -> impl Future<Item = (), Error = Error> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Event::Connect(tx)).unwrap();
@@ -1176,11 +1188,17 @@ impl Service {
     }
 
     /// Returns the socket address of the remote peer of this TCP connection.
+    ///
+    /// Returns an I/O error with `ErrorKind::NotConnected` if this `Service` is not currently
+    /// connected.
     pub fn peer_addr(&self) -> Result<SocketAddr, io::Error> {
         unimplemented!();
     }
 
     /// Returns the socket address of the local half of this TCP connection.
+    ///
+    /// Returns an I/O error with `ErrorKind::NotConnected` if this `Service` is not currently
+    /// connected.
     pub fn local_addr(&self) -> Result<SocketAddr, io::Error> {
         unimplemented!();
     }
@@ -1252,7 +1270,19 @@ impl Service {
 
 impl Debug for Service {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
-        fmt.debug_struct("Service").field("name", &self.name).finish()
+        if let Some((peer_addr, local_addr)) = *self.addrs.lock().expect("failed to obtain lock") {
+            fmt.debug_struct("Service")
+                .field("name", &self.name)
+                .field("peer_addr", &peer_addr)
+                .field("local_addr", &local_addr)
+                .finish()
+        } else {
+            fmt.debug_struct("Service")
+                .field("name", &self.name)
+                .field("peer_addr", &"not connected")
+                .field("local_addr", &"not connected")
+                .finish()
+        }
     }
 }
 
