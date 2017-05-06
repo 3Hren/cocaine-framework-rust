@@ -17,7 +17,7 @@ libc = "0.2"
 rmp = "0.8.5"
 rmp-serde = "0.13.0"
 rmpv = { version = "0.4", features = ["with-serde"] }
-nix = "*"
+nix = "0.8"
 tokio-core = "0.1"
 tokio-io = "0.1"
 mio = "0.6"
