@@ -64,7 +64,7 @@ use Async::*;
 
 pub mod dispatch;
 mod frame;
-mod hpack;
+pub mod hpack;
 pub mod logging;
 mod net;
 pub mod protocol;
