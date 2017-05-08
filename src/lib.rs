@@ -41,7 +41,6 @@ use std::fmt::{self, Debug, Display, Formatter};
 use std::io::{self, Cursor, ErrorKind, Read, Write};
 use std::mem;
 use std::net::SocketAddr;
-use std::os::unix::io::AsRawFd;
 use std::ptr;
 use std::sync::{Arc, Mutex};
 
@@ -77,6 +76,7 @@ use self::frame::Frame;
 use self::hpack::Header;
 pub use self::resolve::{FixedResolver, Resolve, Resolver};
 pub use self::service::Builder;
+use self::sys::SendAll;
 
 const FRAME_LENGTH: u32 = 4;
 
@@ -393,7 +393,7 @@ fn unexpected_eof() -> io::Error {
     ErrorKind::UnexpectedEof.into()
 }
 
-impl<T: Read + Write + AsRawFd> Multiplex<T> {
+impl<T: Read + Write + SendAll> Multiplex<T> {
     pub fn new(sock: T, peer: SocketAddr) -> Self {
         Multiplex {
             id: 0,
@@ -451,8 +451,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
             bufs[idx * 2 + 1] = &message.mbuf.data.as_ref()[..];
         }
 
-        // NOTE: Probably `sendmmsg` fits better, but it's linux > 3 only.
-        sys::sendmsg(self.sock.as_raw_fd(), &bufs[..size])
+        SendAll::send_all(&mut self.sock, &bufs[..size])
     }
 
     fn poll_send(&mut self) -> Poll<(), MultiplexError> {
@@ -614,7 +613,7 @@ impl<T: Read + Write + AsRawFd> Multiplex<T> {
     }
 }
 
-impl<T: Read + Write + AsRawFd> Future for Multiplex<T> {
+impl<T: Read + Write + SendAll> Future for Multiplex<T> {
     type Item = ();
     type Error = MultiplexError;
 
