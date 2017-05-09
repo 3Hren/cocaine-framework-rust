@@ -7,16 +7,17 @@ use futures::sync::{mpsc, oneshot};
 use {Error, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
 use protocol::Flatten;
+use resolve::ResolveInfo as OuterResolveInfo;
 
 use flatten_err;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct GraphNode {
     event: String,
     rx: Option<HashMap<u64, GraphNode>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct EventGraph {
     name: String,
     tx: HashMap<u64, GraphNode>,
@@ -25,21 +26,28 @@ pub struct EventGraph {
 
 #[derive(Debug, Deserialize)]
 pub struct ResolveInfo {
-    endpoints: Vec<(IpAddr, u16)>,
+    addrs: Vec<(IpAddr, u16)>,
     version: u64,
     methods: HashMap<u64, EventGraph>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Info {
-    endpoints: Vec<SocketAddr>,
+    addrs: Vec<SocketAddr>,
     version: u64,
     methods: HashMap<u64, EventGraph>,
 }
 
 impl Info {
-    pub fn endpoints(&self) -> &[SocketAddr] {
-        &self.endpoints
+    pub fn addrs(&self) -> &[SocketAddr] {
+        &self.addrs
+    }
+}
+
+// TODO: Consider less hacky solution.
+impl Into<OuterResolveInfo> for Info {
+    fn into(self) -> OuterResolveInfo {
+        OuterResolveInfo::new(self.addrs, Some(self.methods))
     }
 }
 
@@ -76,13 +84,13 @@ impl Locator {
 
         self.service.call(Method::Resolve.into(), &[name], Vec::new(), dispatch);
 
-        rx.then(flatten_err).map(|ResolveInfo{endpoints, version, methods}| {
-            let endpoints = endpoints.into_iter()
+        rx.then(flatten_err).map(|ResolveInfo{addrs, version, methods}| {
+            let addrs = addrs.into_iter()
                 .map(|(ip, port)| SocketAddr::new(ip, port))
                 .collect();
 
             Info {
-                endpoints: endpoints,
+                addrs: addrs,
                 version: version,
                 methods: methods,
             }

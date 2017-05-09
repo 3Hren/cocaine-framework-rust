@@ -76,6 +76,7 @@ use self::frame::Frame;
 use self::hpack::Header;
 pub use self::resolve::{FixedResolver, Resolve, Resolver};
 pub use self::service::Builder;
+pub use self::service::locator::EventGraph;
 use self::sys::SendAll;
 
 const FRAME_LENGTH: u32 = 4;
@@ -842,7 +843,7 @@ impl Debug for Event {
 struct Supervisor<R: Resolve> {
     // Service name for resolution and debugging.
     name: Cow<'static, str>,
-    addrs: Arc<Mutex<Option<(SocketAddr, SocketAddr)>>>,
+    shared: Arc<Mutex<SharedState>>,
     // Resolver.
     resolver: R,
     // State.
@@ -859,14 +860,14 @@ struct Supervisor<R: Resolve> {
 
 impl<R: Resolve> Supervisor<R> {
     /// Spawns a supervisor that will work inside the given event loop's context.
-    fn spawn(name: Cow<'static, str>, addrs: Arc<Mutex<Option<(SocketAddr, SocketAddr)>>>, resolver: R, handle: &Handle) -> UnboundedSender<Event>
+    fn spawn(name: Cow<'static, str>, shared: Arc<Mutex<SharedState>>, resolver: R, handle: &Handle) -> UnboundedSender<Event>
         where R: 'static
     {
         let (tx, rx) = mpsc::unbounded();
 
         let v = Supervisor {
             name: name,
-            addrs: addrs,
+            shared: shared,
             resolver: resolver,
             state: Some(State::Disconnected),
             rx: rx.fuse(),
@@ -959,8 +960,11 @@ impl<R: Resolve> Future for Supervisor<R> {
                 }
 
                 match future.poll() {
-                    Ok(Ready(addrs)) => {
+                    Ok(Ready(info)) => {
                         info!("successfully resolved `{}` service", self.name);
+
+                        let (addrs, methods) = info.into_components();
+                        self.shared.lock().unwrap().methods = methods;
                         self.state = Some(State::Connecting(box connect(addrs, &self.handle)));
                         return self.poll();
                     }
@@ -1023,9 +1027,6 @@ impl<R: Resolve> Future for Supervisor<R> {
                         sock.set_nodelay(true)?;
 
                         info!("successfully connected to {}", peer);
-
-                        let local = sock.local_addr()?;
-                        *self.addrs.lock().unwrap() = Some((peer.clone(), local));
 
                         for concern in self.concerns.drain(..) {
                             drop(concern.send(Ok(())));
@@ -1109,6 +1110,7 @@ impl<R: Resolve> Future for Supervisor<R> {
                 // be disconnected to be able to handle pending send/recv events.
                 match future.poll() {
                     Ok(Ready(())) => {
+                        *self.shared.lock().unwrap() = Default::default();
                         self.state = Some(State::Disconnected);
                     }
                     Ok(NotReady) => {
@@ -1116,6 +1118,9 @@ impl<R: Resolve> Future for Supervisor<R> {
                         debug!("running - not ready");
                     }
                     Err(..) => {
+                        // TODO: Notify somebody about error.
+                        // TODO: Code duplicate with `Ok(Ready())` branch.
+                        *self.shared.lock().unwrap() = Default::default();
                         self.state = Some(State::Disconnected);
                     }
                 }
@@ -1124,6 +1129,11 @@ impl<R: Resolve> Future for Supervisor<R> {
 
         Ok(NotReady)
     }
+}
+
+#[derive(Default)]
+struct SharedState {
+    methods: Option<HashMap<u64, EventGraph>>,
 }
 
 /// A low-level entry point to the Cocaine Cloud.
@@ -1143,7 +1153,7 @@ impl<R: Resolve> Future for Supervisor<R> {
 #[derive(Clone)]
 pub struct Service {
     name: Cow<'static, str>,
-    addrs: Arc<Mutex<Option<(SocketAddr, SocketAddr)>>>,
+    shared: Arc<Mutex<SharedState>>,
     tx: UnboundedSender<Event>,
 }
 
@@ -1175,10 +1185,15 @@ impl Service {
     ///
     /// Usually a service connects automatically on demand, however it may be useful to optimize
     /// away a connection delay by doing pre-connection using this method.
-    pub fn connect(&self) -> impl Future<Item = (), Error = Error> {
+    pub fn connect(&self) -> impl Future<Item=(), Error=Error> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Event::Connect(tx)).unwrap();
         rx.then(flatten_err)
+    }
+
+    /// Returns service's methods if available.
+    pub fn methods(&self) -> Option<HashMap<u64, EventGraph>> {
+        self.shared.lock().unwrap().methods.clone()
     }
 
     /// Disconnects from a remote service without discarding pending requests.

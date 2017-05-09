@@ -36,12 +36,12 @@ impl ResolveBuilder for ResolverBuilder {
     type Item = Resolver;
 
     fn build(self, handle: &Handle) -> Self::Item {
-        let addrs = Arc::new(Mutex::new(None));
+        let shared = Arc::new(Mutex::new(Default::default()));
 
         let locator = Service {
             name: self.name.clone(),
-            addrs: addrs.clone(),
-            tx: Supervisor::spawn(self.name, addrs, self.resolver, handle),
+            shared: shared.clone(),
+            tx: Supervisor::spawn(self.name, shared, self.resolver, handle),
         };
 
         Resolver::new(Locator::new(locator))
@@ -191,12 +191,12 @@ impl<T: ResolveBuilder + 'static> Builder<T> {
     ///
     /// [connect]: ./struct.Service.html#method.connect
     pub fn build(self, handle: &Handle) -> Service {
-        let addrs = Arc::new(Mutex::new(None));
+        let shared = Arc::new(Mutex::new(Default::default()));
 
         Service {
             name: self.name.clone(),
-            addrs: addrs.clone(),
-            tx: Supervisor::spawn(self.name, addrs, self.resolve_builder.build(handle), handle),
+            shared: shared.clone(),
+            tx: Supervisor::spawn(self.name, shared, self.resolve_builder.build(handle), handle),
         }
     }
 }

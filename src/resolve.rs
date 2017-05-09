@@ -1,10 +1,31 @@
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use futures::{future, Future};
 
 use Error;
-use service::locator::Locator;
+use service::locator::{EventGraph, Locator};
 
+#[derive(Debug)]
+pub struct ResolveInfo {
+    addrs: Vec<SocketAddr>,
+    methods: Option<HashMap<u64, EventGraph>>,
+}
+
+impl ResolveInfo {
+    pub fn new(addrs: Vec<SocketAddr>, methods: Option<HashMap<u64, EventGraph>>) -> Self {
+        Self {
+            addrs: addrs,
+            methods: methods,
+        }
+    }
+
+    pub fn into_components(self) -> (Vec<SocketAddr>, Option<HashMap<u64, EventGraph>>) {
+        (self.addrs, self.methods)
+    }
+}
+
+// TODO: Adapt documentation.
 /// Cloud name resolution for services.
 ///
 /// Used before service connection establishing to determine where to connect, i.e where a service
@@ -15,7 +36,7 @@ use service::locator::Locator;
 /// [locator]: struct.Locator.html
 /// [resolver]: struct.Resolver.html
 pub trait Resolve {
-    type Future: Future<Item=Vec<SocketAddr>, Error=Error>;
+    type Future: Future<Item=ResolveInfo, Error=Error>;
 
     /// Resolves a service name into the network endpoints.
     fn resolve(&mut self, name: &str) -> Self::Future;
@@ -53,10 +74,15 @@ impl Default for FixedResolver {
 }
 
 impl Resolve for FixedResolver {
-    type Future = future::FutureResult<Vec<SocketAddr>, Error>;
+    type Future = future::FutureResult<ResolveInfo, Error>;
 
     fn resolve(&mut self, _name: &str) -> Self::Future {
-        future::ok(self.addrs.clone())
+        let result = ResolveInfo {
+            addrs: self.addrs.clone(),
+            methods: None,
+        };
+
+        future::ok(result)
     }
 }
 
@@ -76,9 +102,9 @@ impl Resolver {
 }
 
 impl Resolve for Resolver {
-    type Future = Box<Future<Item=Vec<SocketAddr>, Error=Error>>;
+    type Future = Box<Future<Item=ResolveInfo, Error=Error>>;
 
     fn resolve(&mut self, name: &str) -> Self::Future {
-        box self.locator.resolve(name).map(|info| info.endpoints().into())
+        box self.locator.resolve(name).map(|info| info.into())
     }
 }
