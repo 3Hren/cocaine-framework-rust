@@ -1214,7 +1214,7 @@ impl Service {
     /// For mute RPC use [`call_mute`][call_mute] instead.
     ///
     /// [call_mute]: #method.call_mute
-    pub fn call<T, D>(&self, ty: u64, args: &T, headers: Vec<Header>, dispatch: D) -> impl Future<Item = Sender, Error = Error>
+    pub fn call<T, D>(&self, ty: u64, args: &T, headers: Vec<Header>, dispatch: D) -> impl Future<Item=Sender, Error=Error>
         where T: Serialize,
               D: Dispatch + 'static
     {
@@ -1244,7 +1244,7 @@ impl Service {
     ///
     /// Calling a service event, that actually does respond, leads to silent dropping all received
     /// response chunks.
-    pub fn call_mute<T>(&self, ty: u64, args: &T) -> impl Future<Item = Sender, Error = Error>
+    pub fn call_mute<T>(&self, ty: u64, args: &T) -> impl Future<Item=Sender, Error=Error>
         where T: Serialize
     {
         let buf = rmps::to_vec(args).unwrap();
@@ -1252,7 +1252,7 @@ impl Service {
     }
 
     #[inline]
-    fn call_mute_raw(&self, ty: u64, buf: Vec<u8>) -> impl Future<Item = Sender, Error = Error> {
+    fn call_mute_raw(&self, ty: u64, buf: Vec<u8>) -> impl Future<Item=Sender, Error=Error> {
         let (tx, rx) = oneshot::channel();
         let event = Mute {
             ty: ty,
@@ -1269,19 +1269,9 @@ impl Service {
 
 impl Debug for Service {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
-        if let Some((peer_addr, local_addr)) = *self.addrs.lock().expect("failed to obtain lock") {
-            fmt.debug_struct("Service")
-                .field("name", &self.name)
-                .field("peer_addr", &peer_addr)
-                .field("local_addr", &local_addr)
-                .finish()
-        } else {
-            fmt.debug_struct("Service")
-                .field("name", &self.name)
-                .field("peer_addr", &"not connected")
-                .field("local_addr", &"not connected")
-                .finish()
-        }
+        fmt.debug_struct("Service")
+            .field("name", &self.name)
+            .finish()
     }
 }
 
