@@ -804,6 +804,7 @@ impl<R: Resolve> Display for State<R> {
 
 enum Event {
     Connect(oneshot::Sender<Result<(), Error>>),
+    Disconnect,
     Call(Call),
     Mute(Mute),
     Push(Push),
@@ -816,6 +817,7 @@ impl Debug for Event {
                 fmt.debug_struct("Event::Connect")
                     .finish()
             }
+            Event::Disconnect => fmt.debug_struct("Event::Disconnect").finish(),
             Event::Call(Call { ty, ref data, .. }) => {
                 fmt.debug_struct("Event::Call")
                     .field("ty", &ty)
@@ -886,6 +888,11 @@ impl<R: Resolve> Supervisor<R> {
         self.events.push_back(event.into());
         debug!("pushed event into the queue, pending: {}", self.events.len());
     }
+
+    fn disconnect(&mut self) {
+        *self.shared.lock().unwrap() = Default::default();
+        self.state = Some(State::Disconnected);
+    }
 }
 
 impl<R: Resolve> Future for Supervisor<R> {
@@ -905,7 +912,9 @@ impl<R: Resolve> Future for Supervisor<R> {
                             Event::Connect(tx) => {
                                 self.concerns.push_back(tx);
                             }
-                            // TODO: Event::Disconnect => do nothing, call again.
+                            Event::Disconnect => {
+                                return self.poll();
+                            }
                             Event::Call(event) => {
                                 self.push_event(event);
                             }
@@ -939,7 +948,7 @@ impl<R: Resolve> Future for Supervisor<R> {
                                 Event::Connect(tx) => {
                                     self.concerns.push_back(tx);
                                 }
-                                // TODO: Event::Disconnect => do nothing.
+                                Event::Disconnect => {}
                                 Event::Call(event) => {
                                     self.push_event(event);
                                 }
@@ -1001,7 +1010,7 @@ impl<R: Resolve> Future for Supervisor<R> {
                                 Event::Connect(tx) => {
                                     self.concerns.push_back(tx);
                                 }
-                                // TODO: Event::Disconnect => do nothing, call again.
+                                Event::Disconnect => {}
                                 Event::Call(event) => {
                                     self.push_event(event);
                                 }
@@ -1077,7 +1086,10 @@ impl<R: Resolve> Future for Supervisor<R> {
                                     // We're already connected, resolve immediately.
                                     drop(tx.send(Ok(())));
                                 }
-                                // TODO: Event::Disconnect => disconnect.
+                                Event::Disconnect => {
+                                    self.disconnect();
+                                    break;
+                                }
                                 Event::Call(event) => {
                                     future.add_event(event.into());
                                 }
@@ -1110,8 +1122,7 @@ impl<R: Resolve> Future for Supervisor<R> {
                 // be disconnected to be able to handle pending send/recv events.
                 match future.poll() {
                     Ok(Ready(())) => {
-                        *self.shared.lock().unwrap() = Default::default();
-                        self.state = Some(State::Disconnected);
+                        self.disconnect();
                     }
                     Ok(NotReady) => {
                         self.state = Some(State::Running(future));
@@ -1119,9 +1130,7 @@ impl<R: Resolve> Future for Supervisor<R> {
                     }
                     Err(..) => {
                         // TODO: Notify somebody about error.
-                        // TODO: Code duplicate with `Ok(Ready())` branch.
-                        *self.shared.lock().unwrap() = Default::default();
-                        self.state = Some(State::Disconnected);
+                        self.disconnect();
                     }
                 }
             }
@@ -1198,7 +1207,7 @@ impl Service {
 
     /// Disconnects from a remote service without discarding pending requests.
     pub fn disconnect(&self) {
-        unimplemented!();
+        self.tx.send(Event::Disconnect).expect("communication channel must live");
     }
 
     /// Returns the socket address of the remote peer of this TCP connection.
