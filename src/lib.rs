@@ -135,7 +135,7 @@ impl Debug for Call {
         fmt.debug_struct("Call")
             .field("ty", &self.ty)
             .field("len", &self.data.len())
-            .field("headers",&self.headers)
+            .field("headers", &self.headers)
             .finish()
     }
 }
@@ -411,7 +411,7 @@ impl<T: Read + Write + SendAll> Multiplex<T> {
 
     fn add_event(&mut self, event: MultiplexEvent) {
         match event {
-            MultiplexEvent::Call(Call{ ty, data, headers, dispatch, complete }) => {
+            MultiplexEvent::Call(Call { ty, data, headers, dispatch, complete }) => {
                 self.invoke(ty, data, headers, complete);
                 self.dispatches.insert(self.id, dispatch);
             }
