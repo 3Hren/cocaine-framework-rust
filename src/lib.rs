@@ -1200,7 +1200,15 @@ impl Service {
         rx.then(flatten_err)
     }
 
-    /// Returns service's methods if available.
+    /// Returns methods map if available.
+    ///
+    /// The return value can be `None` if either the service is not connected or the `Resolve` has
+    /// provided incomplete information.
+    /// Note that this method aren't meant to be used to check whether the service is connected,
+    /// because it can return valid methods map, while still connecting to real endpoint. To check
+    /// the connection status use [`peer_addr`][peer_addr] method instead.
+    ///
+    /// [peer_addr]: #method.peer_addr
     pub fn methods(&self) -> Option<HashMap<u64, EventGraph>> {
         self.shared.lock().unwrap().methods.clone()
     }
