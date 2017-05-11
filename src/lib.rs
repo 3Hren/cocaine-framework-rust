@@ -31,7 +31,6 @@ extern crate rmp_serde as rmps;
 extern crate rmpv;
 extern crate tokio_core;
 extern crate tokio_io;
-extern crate nix;
 extern crate libc;
 
 use std::borrow::Cow;

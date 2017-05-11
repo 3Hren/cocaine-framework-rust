@@ -9,15 +9,13 @@ mod unix {
 
     use libc;
 
-    use nix::sys::socket;
-
     pub fn sendmsg(fd: RawFd, iov: &[&[u8]]) -> Result<usize, Error> {
         #[cfg(target_os = "linux")]
         let len = iov.len() as usize;
         #[cfg(target_os = "macos")]
         let len = iov.len() as i32;
 
-        let mhdr = libc::msghdr {
+        let msghdr = libc::msghdr {
             msg_name: 0 as *mut libc::c_void,
             msg_namelen: 0,
             msg_iov: iov.as_ptr() as *mut libc::iovec,
@@ -28,7 +26,7 @@ mod unix {
         };
 
         let rc = unsafe {
-            libc::sendmsg(fd, &mhdr, socket::MsgFlags::empty().bits())
+            libc::sendmsg(fd, &msghdr, 0)
         };
 
         if rc < 0 {
