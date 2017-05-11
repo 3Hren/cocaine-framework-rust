@@ -37,7 +37,9 @@ mod unix {
     }
 }
 
+/// A `SendAll` tries to send multiple byte buffers at a time.
 pub trait SendAll {
+    /// Attempts to write multiple byte buffers into this sender.
     fn send_all(&mut self, iov: &[&[u8]]) -> Result<usize, Error>;
 }
 

@@ -237,6 +237,7 @@ impl MessageBuf {
         rmp::encode::write_array_len(wr, headers.len() as u32)?;
         for header in headers {
             rmp::encode::write_array_len(wr, 3)?;
+            // Explicitly mark that the remote side should not put headers in the dynamic table.
             rmp::encode::write_bool(wr, false)?;
             rmp::encode::write_bin(wr, &header.name[..])?;
             rmp::encode::write_bin(wr, &header.data[..])?;
