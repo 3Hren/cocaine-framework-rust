@@ -2,7 +2,7 @@ use std::io::Error;
 
 use tokio_core::net::TcpStream;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(unix)]
 mod unix {
     use std::io::Error;
     use std::os::unix::io::RawFd;
@@ -43,7 +43,7 @@ pub trait SendAll {
     fn send_all(&mut self, iov: &[&[u8]]) -> Result<usize, Error>;
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(unix)]
 impl SendAll for TcpStream {
     fn send_all(&mut self, iov: &[&[u8]]) -> Result<usize, Error> {
         use std::os::unix::io::AsRawFd;
@@ -52,7 +52,7 @@ impl SendAll for TcpStream {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(windows)]
 impl SendAll for TcpStream {
     fn send_all(&mut self, iov: &[&[u8]]) -> Result<usize, Error> {
         use std::io::Write;
