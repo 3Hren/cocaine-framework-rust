@@ -82,10 +82,14 @@ const FRAME_LENGTH: u32 = 4;
 
 /// Receiver part of every multiplexed non-mute request performed with a service.
 ///
+/// Implementors of this trait are used to be passed into the [`Service.call`][call] method to
+/// accumulate response chunks.
+///
 /// It is guaranteed that at least one of the [`process`][process] or [`discard`][discard] methods
 /// will be called at least once during a channel lifetime.
 /// Note, that [`discard`][discard] method can be called no more than once.
 ///
+/// [call]: struct.Service.html#method.call
 /// [process]: #method.process
 /// [discard]: #method.discard
 pub trait Dispatch: Send {
