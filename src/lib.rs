@@ -19,6 +19,7 @@
 
 #[macro_use]
 extern crate bitflags;
+extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate futures;
@@ -31,7 +32,6 @@ extern crate rmp_serde as rmps;
 extern crate rmpv;
 extern crate tokio_core;
 extern crate tokio_io;
-extern crate libc;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
