@@ -90,7 +90,7 @@ impl Unicorn {
     /// In addition to common errors this method also emits `Error::InvalidDataFraming` on failed
     /// attempt to deserialize the received value into the specified type.
     pub fn subscribe<T: for<'de> Deserialize<'de> + Send + 'static>(&self, path: String) ->
-        impl Future<Item=(Close, BoxStream<(T, Version), Error>), Error=Error>
+        impl Future<Item=(Close, BoxStream<(Option<T>, Version), Error>), Error=Error>
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
