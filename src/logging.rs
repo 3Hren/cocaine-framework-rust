@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 use std::error;
 use std::fmt::{self, Debug, Display, Formatter};
+use std::mem;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -232,6 +233,42 @@ impl Debug for LoggerContext {
     }
 }
 
+/// Represents a filtering result for a logging event.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FilterResult {
+    /// The filter accepts an event unconditionally. It should be accepted immediately without
+    /// checking for other filters if any.
+    Accept,
+    /// The filter denies an event unconditionally. It should be denied immediately without
+    /// checking for other filters if any.
+    Reject,
+    /// The filter is neutral with the event, i.e. it has not strong opinion what to do. It should
+    /// check for other filters if any.
+    Neutral,
+}
+
+pub trait Log {
+    /// Returns a logger name, that is used as a *source* parameter.
+    fn source(&self) -> &str;
+
+    /// Checks whether an event with the specified severity can be logged.
+    fn filter(&self, sev: Severity) -> FilterResult;
+
+    #[doc(hidden)]
+    /// Emits a new already properly encoded logging event.
+    ///
+    /// # Warning
+    ///
+    /// Do not use this method directly, use [`log!`][log!] macro instead. Violating this rule may
+    /// lead to repeatedly disconnection from the real logging service due to framing error. The
+    /// reason is - a `buf` argument must be properly encoded.
+    ///
+    /// [log!]: ../macro.log.html
+    fn __emit(&self, buf: Vec<u8>) {
+        mem::drop(buf);
+    }
+}
+
 /// Logger allows to log events directly into the Cocaine Logging Service.
 ///
 /// Meant to be used in conjunction with [`log!`][log!] macro.
@@ -248,28 +285,24 @@ impl Logger {
     pub fn name(&self) -> &str {
         self.parent.name()
     }
+}
 
-    /// Returns a logger name, that is used as a *source* parameter.
-    pub fn source(&self) -> &str {
+impl Log for Logger {
+    fn source(&self) -> &str {
         &self.source
     }
 
-    /// Returns an internally mutable filter handle.
-    pub fn filter(&self) -> &Filter {
-        &self.parent.filter
+    fn filter(&self, sev: Severity) -> FilterResult {
+        let sev: isize = sev.into();
+
+        if sev >= self.parent.filter().get() {
+            FilterResult::Accept
+        } else {
+            FilterResult::Reject
+        }
     }
 
-    #[doc(hidden)]
-    /// Emits a new already properly encoded logging event.
-    ///
-    /// # Warning
-    ///
-    /// Do not use this method directly, use [`log!`][log!] macro instead. Violating this rule may
-    /// lead to repeatedly disconnection from the real logging service due to framing error. The
-    /// reason is - a `buf` argument must be properly encoded.
-    ///
-    /// [log!]: ../macro.log.html
-    pub fn __emit(&self, buf: Vec<u8>) {
+    fn __emit(&self, buf: Vec<u8>) {
         self.parent.tx.send(Event::Write(buf)).unwrap();
     }
 }
@@ -329,10 +362,17 @@ macro_rules! cocaine_log(
         cocaine_log!(__split # {}, $src, $sev, $($args)*)
     };
     ($log:expr, $sev:expr, $($args:tt)*) => {{
-        let sev: isize = $sev.into();
+        #[allow(unused)]
+        use cocaine::logging::{FilterResult, Log};
 
-        if sev >= $log.filter().get() {
-            $log.__emit(cocaine_log!(__split # {}, $log.source(), sev, $($args)*).expect("failed to serialize logging event frame"));
+        match $log.filter($sev) {
+            FilterResult::Accept |
+            FilterResult::Neutral => {
+                let sev: isize = $sev.into();
+                $log.__emit(cocaine_log!(__split # {}, $log.source(), sev, $($args)*)
+                    .expect("failed to serialize logging event frame"));
+            }
+            FilterResult::Reject => {}
         }
     }};
 );
