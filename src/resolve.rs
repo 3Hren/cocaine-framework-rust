@@ -62,12 +62,19 @@ impl FixedResolver {
             addrs: addrs,
         }
     }
+
+    /// Returns endpoints given at construction time.
+    pub fn addrs(&self) -> &[SocketAddr] {
+        &self.addrs
+    }
 }
 
+/// An implementation of trait for giving a `FixedResolver` a useful default value.
+///
+/// The default endpoint for a fixed resolver is: `[::1]:10053`.
 impl Default for FixedResolver {
     fn default() -> Self {
         FixedResolver {
-            // TODO: Replace with dual-stack endpoints. Test.
             addrs: vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053)],
         }
     }
@@ -106,5 +113,30 @@ impl Resolve for Resolver {
 
     fn resolve(&mut self, name: &str) -> Self::Future {
         box self.locator.resolve(name).map(|info| info.into())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+
+    use super::FixedResolver;
+
+    #[test]
+    fn fixed_resolver_saves_addrs() {
+        let addrs = vec![
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10053),
+        ];
+        let resolver = FixedResolver::new(addrs.clone());
+
+        assert_eq!(addrs, resolver.addrs());
+    }
+
+    #[test]
+    fn fixed_resolver_default_addrs() {
+        let resolver = FixedResolver::default();
+
+        assert_eq!(vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053)],
+            resolver.addrs());
     }
 }
