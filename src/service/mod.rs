@@ -1,3 +1,6 @@
+//! This module contains various simplifications aimed to ease working with services: builders and
+//! façades.
+
 use std::borrow::Cow;
 use std::fmt::{self, Debug, Formatter};
 use std::iter::IntoIterator;
