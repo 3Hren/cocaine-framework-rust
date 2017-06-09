@@ -19,10 +19,10 @@
 
 #[macro_use]
 extern crate bitflags;
+extern crate futures;
 extern crate libc;
 #[macro_use]
 extern crate log;
-extern crate futures;
 #[macro_use]
 extern crate serde;
 #[macro_use]
