@@ -6,10 +6,6 @@ use futures::{Future, Poll};
 use tokio_core::net::{TcpStream, TcpStreamNew};
 use tokio_core::reactor::Handle;
 
-fn econnrefused() -> Error {
-    Error::new(ErrorKind::ConnectionRefused, "connection refused")
-}
-
 struct TcpSteamMultiConnect<I> {
     handle: Handle,
     current: Option<TcpStreamNew>,
@@ -33,7 +29,7 @@ impl<I: Iterator<Item = SocketAddr>> Future for TcpSteamMultiConnect<I> {
                         self.current = Some(TcpStream::connect(&addr, &self.handle));
                         return self.poll();
                     }
-                    None => return Err(econnrefused()),
+                    None => return Err(ErrorKind::ConnectionRefused.into()),
                 }
             }
         }
