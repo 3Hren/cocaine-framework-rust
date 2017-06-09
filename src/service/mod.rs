@@ -73,21 +73,21 @@ impl<R: Resolve> ResolveBuilder for PreparedResolver<R> {
 /// # Examples
 ///
 /// ```
-/// use cocaine::{Builder, Core};
+/// use cocaine::{Core, ServiceBuilder};
 ///
 /// let core = Core::new().unwrap();
 ///
-/// let service = Builder::new("storage")
+/// let service = ServiceBuilder::new("storage")
 ///     .build(&core.handle());
 ///
 /// assert_eq!("storage", service.name());
 /// ```
-pub struct Builder<T> {
+pub struct ServiceBuilder<T> {
     name: Cow<'static, str>,
     resolve_builder: T,
 }
 
-impl Builder<ResolverBuilder> {
+impl ServiceBuilder<ResolverBuilder> {
     /// Constructs a new service builder, which will build a `Service` with the given name.
     pub fn new<N: Into<Cow<'static, str>>>(name: N) -> Self {
         let resolver = ResolverBuilder {
@@ -95,7 +95,7 @@ impl Builder<ResolverBuilder> {
             resolver: FixedResolver::default(),
         };
 
-        Builder {
+        Self {
             name: name.into(),
             resolve_builder: resolver,
         }
@@ -117,11 +117,11 @@ impl Builder<ResolverBuilder> {
     /// ```
     /// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     ///
-    /// use cocaine::{Builder, Core};
+    /// use cocaine::{Core, ServiceBuilder};
     ///
     /// let core = Core::new().unwrap();
     ///
-    /// let service = Builder::new("storage")
+    /// let service = ServiceBuilder::new("storage")
     ///     .locator_addrs(vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10071)])
     ///     .build(&core.handle());
     /// ```
@@ -154,7 +154,7 @@ impl Builder<ResolverBuilder> {
     // TODO: Resolve timeout.
 }
 
-impl<T> Builder<T> {
+impl<T> ServiceBuilder<T> {
     /// Sets the resolver, that is used for name resolution.
     ///
     /// By default name resolution via the `Locator` is used, but sometimes more detailed control
@@ -168,25 +168,25 @@ impl<T> Builder<T> {
     /// ```
     /// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     ///
-    /// use cocaine::{Builder, Core, FixedResolver};
+    /// use cocaine::{ServiceBuilder, Core, FixedResolver};
     ///
     /// let core = Core::new().unwrap();
     /// let endpoints = vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 32768)];
     ///
-    /// let service = Builder::new("storage")
+    /// let service = ServiceBuilder::new("storage")
     ///     .resolver(FixedResolver::new(endpoints))
     ///     .build(&core.handle());
     /// ```
-    pub fn resolver<R: Resolve>(self, resolver: R) -> Builder<PreparedResolver<R>> {
-        Builder {
+    pub fn resolver<R: Resolve>(self, resolver: R) -> ServiceBuilder<PreparedResolver<R>> {
+        ServiceBuilder {
             name: self.name,
             resolve_builder: PreparedResolver { resolver: resolver },
         }
     }
 }
 
-impl<T: ResolveBuilder + 'static> Builder<T> {
-    /// Consumes this `Builder` yielding a `Service`.
+impl<T: ResolveBuilder + 'static> ServiceBuilder<T> {
+    /// Consumes this `ServiceBuilder` yielding a `Service`.
     ///
     /// This will not perform a connection attempt until required - both name resolution and
     /// connection will be performed on demand. You can call [`Service::connect()`][connect] method
@@ -204,8 +204,8 @@ impl<T: ResolveBuilder + 'static> Builder<T> {
     }
 }
 
-impl<T> Debug for Builder<T> {
+impl<T> Debug for ServiceBuilder<T> {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
-        fmt.debug_struct("Builder").field("name", &self.name).finish()
+        fmt.debug_struct("ServiceBuilder").field("name", &self.name).finish()
     }
 }

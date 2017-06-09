@@ -5,7 +5,6 @@
 //! - [ ] Notify about send events completion.
 //! - [ ] Infinite buffer growing protection.
 //! - [ ] Implement `local_addr` and `peer_addr` for `Service`.
-//! - [ ] Maybe rename `service::Builder` to `service::ServiceBuilder`.
 //! - [ ] Generic multiplexer over the socket type, allowing to work with both TCP and Unix sockets.
 //! - [ ] Receiving headers.
 //! - [ ] HPACK encoder.
@@ -73,7 +72,7 @@ use net::connect;
 use self::frame::Frame;
 use self::hpack::Header;
 pub use self::resolve::{FixedResolver, Resolve, Resolver};
-pub use self::service::Builder;
+pub use self::service::ServiceBuilder;
 pub use self::service::locator::EventGraph;
 use self::sys::SendAll;
 
@@ -1176,14 +1175,14 @@ impl Service {
     /// connection will be performed on demand, but you can still call [`connect`][connect] method
     /// to perform connection attempt.
     ///
-    /// For more fine-grained service configuration use [`Builder`][builder] instead.
+    /// For more fine-grained service configuration use [`ServiceBuilder`][builder] instead.
     ///
     /// [connect]: #method.connect
-    /// [builder]: struct.Builder.html
+    /// [builder]: struct.ServiceBuilder.html
     pub fn new<N>(name: N, handle: &Handle) -> Self
         where N: Into<Cow<'static, str>>
     {
-        Builder::new(name).build(handle)
+        ServiceBuilder::new(name).build(handle)
     }
 
     /// Returns service name.

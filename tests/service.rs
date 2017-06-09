@@ -16,7 +16,7 @@ use net2::TcpStreamExt;
 use rmpv::ValueRef;
 use tokio_core::reactor::Core;
 
-use cocaine::{Builder, Dispatch, Error, FixedResolver};
+use cocaine::{Dispatch, Error, FixedResolver, ServiceBuilder};
 
 fn endpoint() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0)
@@ -35,7 +35,7 @@ fn connect() {
 
     let mut core = Core::new().unwrap();
 
-    let service = Builder::new("service")
+    let service = ServiceBuilder::new("service")
         .resolver(FixedResolver::new(vec![addr]))
         .build(&core.handle());
 
@@ -49,7 +49,7 @@ fn connection_refused() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
     let mut core = Core::new().unwrap();
 
-    let service = Builder::new("service")
+    let service = ServiceBuilder::new("service")
         .resolver(FixedResolver::new(vec![addr]))
         .build(&core.handle());
 
@@ -82,7 +82,7 @@ fn connection_refused_because_invalid_framing() {
 
     let mut core = Core::new().unwrap();
 
-    let service = Builder::new("service")
+    let service = ServiceBuilder::new("service")
         .locator_addrs(vec![addr])
         .build(&core.handle());
 
@@ -114,7 +114,7 @@ fn dispatch_receives_rst() {
 
     let mut core = Core::new().unwrap();
 
-    let service = Builder::new("service")
+    let service = ServiceBuilder::new("service")
         .resolver(FixedResolver::new(vec![addr]))
         .build(&core.handle());
 
