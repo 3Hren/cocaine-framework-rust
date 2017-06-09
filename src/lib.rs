@@ -6,7 +6,6 @@
 //! - [ ] Infinite buffer growing protection.
 //! - [ ] Implement `local_addr` and `peer_addr` for `Service`.
 //! - [ ] Maybe rename `service::Builder` to `service::ServiceBuilder`.
-//! - [ ] Disconnect event.
 //! - [ ] Generic multiplexer over the socket type, allowing to work with both TCP and Unix sockets.
 //! - [ ] Receiving headers.
 //! - [ ] HPACK encoder.
