@@ -13,15 +13,15 @@ use flatten_err;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct GraphNode {
-    event: String,
-    rx: Option<HashMap<u64, GraphNode>>,
+    pub event: String,
+    pub rx: Option<HashMap<u64, GraphNode>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct EventGraph {
-    name: String,
-    tx: HashMap<u64, GraphNode>,
-    rx: HashMap<u64, GraphNode>,
+    pub name: String,
+    pub tx: HashMap<u64, GraphNode>,
+    pub rx: HashMap<u64, GraphNode>,
 }
 
 #[derive(Debug, Deserialize)]
