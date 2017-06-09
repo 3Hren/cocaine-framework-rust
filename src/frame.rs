@@ -111,3 +111,56 @@ impl<'a, 'b> Frame<'a, 'b> {
         self.args
     }
 }
+
+#[cfg(test)]
+mod test {
+    use rmpv::ValueRef;
+
+    use super::Frame;
+
+    #[test]
+    fn pass() {
+        let val = ValueRef::Array(vec![
+            ValueRef::from(1),
+            ValueRef::from(0),
+            ValueRef::Array(vec![]),
+        ]);
+
+        let frame = Frame::new(&val).unwrap();
+        assert_eq!(1, frame.id());
+        assert_eq!(0, frame.ty());
+        assert_eq!(&ValueRef::Array(vec![]), frame.args());
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidFrameType")]
+    fn fail_invalid_frame_type() {
+        let val = ValueRef::from(42);
+
+        Frame::new(&val).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "SpanTypeMismatch")]
+    fn fail_invalid_chan_type() {
+        let val = ValueRef::from(vec![
+            ValueRef::from("1"),
+            ValueRef::from(0),
+            ValueRef::Array(vec![]),
+        ]);
+
+        Frame::new(&val).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "TypeTypeMismatch")]
+    fn fail_invalid_type_type() {
+        let val = ValueRef::from(vec![
+            ValueRef::from(1),
+            ValueRef::from("0"),
+            ValueRef::Array(vec![]),
+        ]);
+
+        Frame::new(&val).unwrap();
+    }
+}
