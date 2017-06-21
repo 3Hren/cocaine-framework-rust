@@ -14,10 +14,12 @@ use super::{FixedResolver, Resolver, Supervisor};
 
 pub mod app;
 pub mod locator;
+pub mod tvm;
 pub mod unicorn;
 
 pub use self::app::App;
 pub use self::locator::Locator;
+pub use self::tvm::Tvm;
 pub use self::unicorn::Unicorn;
 
 const LOCATOR_NAME: &str = "locator";
