@@ -9,7 +9,7 @@ use {Error, Service, flatten_err};
 use dispatch::PrimitiveDispatch;
 
 /// A grant type.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Grant {
     /// This can be exchanged to a ticket with basic client credentials, like client id.
     ClientCredentials,
