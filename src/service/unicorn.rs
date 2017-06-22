@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use {Error, Sender, Service};
 use dispatch::StreamingDispatch;
+use hpack::Header;
 use protocol::Flatten;
 
 /// A value version.
@@ -89,12 +90,16 @@ impl Unicorn {
     ///
     /// In addition to common errors this method also emits `Error::InvalidDataFraming` on failed
     /// attempt to deserialize the received value into the specified type.
-    pub fn subscribe<T: for<'de> Deserialize<'de> + Send + 'static>(&self, path: String) ->
+    pub fn subscribe<T, H>(&self, path: String, headers: H) ->
         impl Future<Item=(Close, BoxStream<(Option<T>, Version), Error>), Error=Error>
+    where
+        T: for<'de> Deserialize<'de> + Send + 'static,
+        H: Into<Option<Vec<Header>>>
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
-        self.service.call(Method::Subscribe.into(), &[path], Vec::new(), dispatch).and_then(|sender| {
+        let headers = headers.into().unwrap_or_default();
+        self.service.call(Method::Subscribe.into(), &[path], headers, dispatch).and_then(|sender| {
             let handle = Close { sender: sender };
             let stream = rx.map_err(|()| Error::Canceled)
                 .then(Flatten::flatten)
