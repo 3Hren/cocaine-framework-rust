@@ -54,7 +54,7 @@ impl Tvm {
     }
 
     /// Exchanges your credentials for a TVM ticket.
-    pub fn ticket(&self, id: u32, secret: &str, grant: Grant) ->
+    pub fn ticket(&self, id: u32, secret: &str, grant: &Grant) ->
         impl Future<Item = String, Error = Error>
     {
         let method = Method::TicketFull.into();
@@ -65,7 +65,7 @@ impl Tvm {
 
         let args: HashMap<String, String> = HashMap::new();
 
-        match grant {
+        match *grant {
             Grant::ClientCredentials => {
                 self.service.call(method, &(id, secret, ty, args), Vec::new(), dispatch);
             }
