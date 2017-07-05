@@ -1281,7 +1281,8 @@ impl Service {
     pub fn call_mute<T>(&self, ty: u64, args: &T) -> impl Future<Item=Sender, Error=Error>
         where T: Serialize
     {
-        let buf = rmps::to_vec(args).unwrap();
+        let buf = rmps::to_vec(args)
+            .expect("failed to serialize arguments");
         self.call_mute_raw(ty, buf)
     }
 
