@@ -33,8 +33,8 @@ impl Error {
     }
 
     /// Returns optional error description, if provided.
-    pub fn description(&self) -> Option<&String> {
-        self.description.as_ref()
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_ref().map(|v| v.as_str())
     }
 
     /// Converts this error into an optional error description, if provided.
