@@ -9,7 +9,7 @@ use rmpv::ValueRef;
 use rmpv::ext::EnumRefDeserializer;
 
 /// The error type which is returned from a cocaine service.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Error {
     error: (i64, i64),
     description: Option<String>,
