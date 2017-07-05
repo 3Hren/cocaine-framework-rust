@@ -1,13 +1,13 @@
 use futures::{Future, Stream};
 use futures::stream::{BoxStream};
-use futures::sync::mpsc;
+use futures::sync::{oneshot, mpsc};
 
 use rmpv::{self, Value};
 
 use serde::Deserialize;
 
-use {Error, Sender, Service};
-use dispatch::StreamingDispatch;
+use {Error, Sender, Service, flatten_err};
+use dispatch::{PrimitiveDispatch, StreamingDispatch};
 use hpack::Header;
 use protocol::Flatten;
 
@@ -37,6 +37,7 @@ impl Drop for Close {
 enum Method {
     Subscribe,
     ChildrenSubscribe,
+    Get,
 }
 
 impl Into<u64> for Method {
@@ -45,6 +46,7 @@ impl Into<u64> for Method {
         match self {
             Method::Subscribe => 0,
             Method::ChildrenSubscribe => 1,
+            Method::Get => 3,
         }
     }
 }
@@ -75,6 +77,26 @@ impl Unicorn {
     /// this will result in various framing errors.
     pub fn new(service: Service) -> Self {
         Self { service: service }
+    }
+
+    /// Obtains a value with its version stored at specified path.
+    ///
+    /// This method returns a future with specified `Deserialize` type.
+    pub fn get<T>(&self, path: String) ->
+        impl Future<Item=(Option<T>, Version), Error=Error>
+    where
+        T: for<'de> Deserialize<'de> + Send + 'static
+    {
+        let (tx, rx) = oneshot::channel();
+        let dispatch = PrimitiveDispatch::new(tx);
+        self.service.call(Method::Get.into(), &[path], Vec::new(), dispatch);
+
+        rx.then(flatten_err).and_then(|(val, version): (Value, Version)| {
+            match rmpv::ext::deserialize_from(val) {
+                Ok(val) => Ok((val, version)),
+                Err(err) => Err(Error::InvalidDataFraming(err.to_string())),
+            }
+        })
     }
 
     /// Subscribes for updates for the node at the specified path.
