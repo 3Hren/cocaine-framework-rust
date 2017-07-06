@@ -92,7 +92,7 @@ impl Unicorn {
     ///
     /// let future = unicorn.get("/cocaine/config");
     ///
-    /// let value: (Option<String>, i64) = core.run(future).unwrap();
+    /// let (value, version): (Option<String>, i64) = core.run(future).unwrap();
     /// ```
     pub fn get<T>(&self, path: &str) ->
         impl Future<Item=(Option<T>, Version), Error=Error>
