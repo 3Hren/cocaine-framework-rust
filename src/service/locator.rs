@@ -2,14 +2,12 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 
 use futures::{Future, Stream};
-use futures::sync::{mpsc, oneshot};
+use futures::sync::mpsc;
 
 use {Error, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
 use protocol::Flatten;
 use resolve::ResolveInfo as OuterResolveInfo;
-
-use flatten_err;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct GraphNode {
@@ -78,13 +76,24 @@ impl Locator {
         Self { service: service }
     }
 
+    /// Resolves a service with the specified name.
+    ///
+    /// ```no_run
+    /// use cocaine::{Core, Service};
+    /// use cocaine::service::Locator;
+    ///
+    /// let mut core = Core::new().unwrap();
+    /// let locator = Locator::new(Service::new("locator", &core.handle()));
+    ///
+    /// let future = locator.resolve("node");
+    ///
+    /// let info = core.run(future).unwrap();
+    /// ```
     pub fn resolve(&self, name: &str) -> impl Future<Item = Info, Error = Error> {
-        let (tx, rx) = oneshot::channel();
-        let dispatch = PrimitiveDispatch::new(tx);
-
+        let (dispatch, future) = PrimitiveDispatch::pair();
         self.service.call(Method::Resolve.into(), &[name], Vec::new(), dispatch);
 
-        rx.then(flatten_err).map(|ResolveInfo{addrs, version, methods}| {
+        future.map(|ResolveInfo{addrs, version, methods}| {
             let addrs = addrs.into_iter()
                 .map(|(ip, port)| SocketAddr::new(ip, port))
                 .collect();
