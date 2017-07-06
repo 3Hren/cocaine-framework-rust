@@ -97,7 +97,7 @@ impl Unicorn {
     pub fn get<T>(&self, path: &str) ->
         impl Future<Item=(Option<T>, Version), Error=Error>
     where
-        T: for<'de> Deserialize<'de> + Send + 'static
+        T: for<'de> Deserialize<'de>
     {
         let (tx, rx) = oneshot::channel();
         let dispatch = PrimitiveDispatch::new(tx);
