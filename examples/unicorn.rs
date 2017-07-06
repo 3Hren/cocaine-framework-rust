@@ -4,7 +4,6 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 
-use std::time::SystemTime;
 use futures::{Future, Stream};
 
 use cocaine::{Core, Service};
@@ -27,7 +26,7 @@ fn main() {
 
             let mut futures = Vec::with_capacity(5001);
             for node in nodes {
-                futures.push(unicorn.get::<Resource>(format!("/darkvoice/resources/{}", node)));
+                futures.push(unicorn.get::<Resource>(&format!("/darkvoice/resources/{}", node)));
             }
 
             futures::future::join_all(futures).and_then(|result| {

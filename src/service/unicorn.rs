@@ -82,7 +82,19 @@ impl Unicorn {
     /// Obtains a value with its version stored at specified path.
     ///
     /// This method returns a future with specified `Deserialize` type.
-    pub fn get<T>(&self, path: String) ->
+    ///
+    /// ```no_run
+    /// use cocaine::{Core, Service};
+    /// use cocaine::service::Unicorn;
+    ///
+    /// let mut core = Core::new().unwrap();
+    /// let unicorn = Unicorn::new(Service::new("unicorn", &core.handle()));
+    ///
+    /// let future = unicorn.get("/cocaine/config");
+    ///
+    /// let value: (Option<String>, i64) = core.run(future).unwrap();
+    /// ```
+    pub fn get<T>(&self, path: &str) ->
         impl Future<Item=(Option<T>, Version), Error=Error>
     where
         T: for<'de> Deserialize<'de> + Send + 'static
