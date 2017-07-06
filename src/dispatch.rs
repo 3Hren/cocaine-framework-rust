@@ -1,6 +1,7 @@
 //! Contains helper dispatches that ease working with common protocols, like `Primitive` or
 //! `Streaming`.
 
+use futures::Future;
 use futures::sync::mpsc::UnboundedSender;
 use futures::sync::oneshot;
 
@@ -24,6 +25,18 @@ impl<T> PrimitiveDispatch<T> {
     /// Constructs a `PrimitiveDispatch` by wrapping the specified oneshot sender.
     pub fn new(tx: oneshot::Sender<Result<T, Error>>) -> Self {
         Self { tx: tx }
+    }
+
+    /// Constructs a `PrimitiveDispatch` paired with a future of result.
+    ///
+    /// The future returned will be resolved at a time when an incoming message is consumed by the
+    /// dispatch.
+    pub fn pair() -> (Self, impl Future<Item = T, Error = Error>) {
+        let (tx, rx) = oneshot::channel();
+        let result = PrimitiveDispatch::new(tx);
+        let future = rx.map_err(|e| e.into()).then(|r| r.and_then(|v| v));
+
+        (result, future)
     }
 }
 

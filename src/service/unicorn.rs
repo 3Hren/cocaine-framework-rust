@@ -1,12 +1,12 @@
 use futures::{Future, Stream};
 use futures::stream::{BoxStream};
-use futures::sync::{oneshot, mpsc};
+use futures::sync::mpsc;
 
 use rmpv::{self, Value};
 
 use serde::Deserialize;
 
-use {Error, Sender, Service, flatten_err};
+use {Error, Sender, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
 use hpack::Header;
 use protocol::Flatten;
@@ -99,11 +99,10 @@ impl Unicorn {
     where
         T: for<'de> Deserialize<'de>
     {
-        let (tx, rx) = oneshot::channel();
-        let dispatch = PrimitiveDispatch::new(tx);
+        let (dispatch, future) = PrimitiveDispatch::pair();
         self.service.call(Method::Get.into(), &[path], Vec::new(), dispatch);
 
-        rx.then(flatten_err).and_then(|(val, version): (Value, Version)| {
+        future.and_then(|(val, version): (Value, Version)| {
             match rmpv::ext::deserialize_from(val) {
                 Ok(val) => Ok((val, version)),
                 Err(err) => Err(Error::InvalidDataFraming(err.to_string())),
