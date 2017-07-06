@@ -76,7 +76,7 @@ impl Locator {
         Self { service: service }
     }
 
-    /// Resolves a service with the specified name.
+    /// Resolves a service with the specified name, returning its endpoints, version and methods.
     ///
     /// ```no_run
     /// use cocaine::{Core, Service};
