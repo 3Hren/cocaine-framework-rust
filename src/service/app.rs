@@ -18,14 +18,11 @@ impl Sender {
         self.inner.send(1, &((0, id), description));
     }
 
-    pub fn close(self) {
-        self.inner.send(2, &[0; 0]);
-    }
+    pub fn close(self) {}
 }
 
 impl Drop for Sender {
     fn drop(&mut self) {
-        // TODO: Here is the double-close.
         self.inner.send(2, &[0; 0]);
     }
 }
