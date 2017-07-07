@@ -1,3 +1,5 @@
+//! Header Compression for HTTP/2.
+
 use std::borrow::Cow;
 
 #[derive(Clone, Debug, PartialEq)]

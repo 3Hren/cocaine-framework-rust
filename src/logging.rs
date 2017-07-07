@@ -259,11 +259,11 @@ pub trait Log {
     ///
     /// # Warning
     ///
-    /// Do not use this method directly, use [`log!`][log!] macro instead. Violating this rule may
-    /// lead to repeatedly disconnection from the real logging service due to framing error. The
-    /// reason is - a `buf` argument must be properly encoded.
+    /// Do not use this method directly, use [`cocaine_log!`][log!] macro instead. Violating this
+    /// rule may lead to repeatedly disconnection from the real logging service due to framing
+    /// error. The reason is - a `buf` argument must be properly encoded.
     ///
-    /// [log!]: ../macro.log.html
+    /// [log!]: ../macro.cocaine_log.html
     fn __emit(&self, buf: Vec<u8>) {
         mem::drop(buf);
     }
@@ -271,9 +271,9 @@ pub trait Log {
 
 /// Logger allows to log events directly into the Cocaine Logging Service.
 ///
-/// Meant to be used in conjunction with [`log!`][log!] macro.
+/// Meant to be used in conjunction with [`cocaine_log!`][log!] macro.
 ///
-/// [log!]: ../macro.log.html
+/// [log!]: ../macro.cocaine_log.html
 #[derive(Debug, Clone)]
 pub struct Logger {
     parent: LoggerContext,

@@ -194,7 +194,7 @@ impl<T: ResolveBuilder + 'static> ServiceBuilder<T> {
     /// connection will be performed on demand. You can call [`Service::connect()`][connect] method
     /// for fine-grained control.
     ///
-    /// [connect]: ./struct.Service.html#method.connect
+    /// [connect]: ../struct.Service.html#method.connect
     pub fn build(self, handle: &Handle) -> Service {
         let shared = Arc::new(Mutex::new(Default::default()));
 

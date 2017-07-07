@@ -654,6 +654,7 @@ impl<T: Read + Write + SendAll> Future for Multiplex<T> {
     }
 }
 
+/// An upstream for sending additional chunks into a channel.
 pub struct Sender {
     id: u64,
     tx: UnboundedSender<Event>,
@@ -1159,7 +1160,7 @@ struct SharedState {
 /// Most time you find out that it's more practical to use convenient service wrappers, like
 /// [`Locator`][Locator], [`Unicorn`][Unicorn] etc.
 ///
-/// [Locator]: struct.Locator.html
+/// [Locator]: service/locator/struct.Locator.html
 /// [Unicorn]: service/unicorn/struct.Unicorn.html
 #[derive(Clone)]
 pub struct Service {
@@ -1178,7 +1179,7 @@ impl Service {
     /// For more fine-grained service configuration use [`ServiceBuilder`][builder] instead.
     ///
     /// [connect]: #method.connect
-    /// [builder]: struct.ServiceBuilder.html
+    /// [builder]: service/struct.ServiceBuilder.html
     pub fn new<N>(name: N, handle: &Handle) -> Self
         where N: Into<Cow<'static, str>>
     {

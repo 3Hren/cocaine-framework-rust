@@ -33,7 +33,7 @@ impl ResolveInfo {
 /// For common usage the most reasonable choice is a [`Resolver`][resolver] implementation that
 /// uses [`Locator`][locator] for name resolution.
 ///
-/// [locator]: struct.Locator.html
+/// [locator]: service/locator/struct.Locator.html
 /// [resolver]: struct.Resolver.html
 pub trait Resolve {
     type Future: Future<Item=ResolveInfo, Error=Error>;
