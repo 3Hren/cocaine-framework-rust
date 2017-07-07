@@ -3,9 +3,8 @@
 use std::collections::HashMap;
 
 use futures::Future;
-use futures::sync::oneshot;
 
-use {Error, Service, flatten_err};
+use {Error, Service};
 use dispatch::PrimitiveDispatch;
 
 /// A grant type.
@@ -59,11 +58,9 @@ impl Tvm {
     {
         let method = Method::TicketFull.into();
         let ty = grant.ty();
-
-        let (tx, rx) = oneshot::channel();
-        let dispatch = PrimitiveDispatch::new(tx);
-
         let args: HashMap<String, String> = HashMap::new();
+
+        let (dispatch, future) = PrimitiveDispatch::pair();
 
         match *grant {
             Grant::ClientCredentials => {
@@ -71,7 +68,7 @@ impl Tvm {
             }
         }
 
-        rx.then(flatten_err)
+        future
     }
 }
 
