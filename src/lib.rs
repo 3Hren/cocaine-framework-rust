@@ -1038,6 +1038,8 @@ impl<R: Resolve> Future for Supervisor<R> {
                         let peer = sock.peer_addr()?;
                         sock.set_nodelay(true)?;
 
+                        let local_addr = sock.local_addr()?;
+
                         info!("successfully connected to {}", peer);
 
                         for concern in self.concerns.drain(..) {
@@ -1050,6 +1052,8 @@ impl<R: Resolve> Future for Supervisor<R> {
                             mx.add_event(event);
                         }
 
+                        self.shared.lock().unwrap().peer_addr = Some(peer);
+                        self.shared.lock().unwrap().local_addr = Some(local_addr);
                         self.state = Some(State::Running(mx));
                         return self.poll();
                     }
@@ -1145,6 +1149,8 @@ impl<R: Resolve> Future for Supervisor<R> {
 
 #[derive(Default)]
 struct SharedState {
+    peer_addr: Option<SocketAddr>,
+    local_addr: Option<SocketAddr>,
     methods: Option<HashMap<u64, EventGraph>>,
 }
 
@@ -1226,7 +1232,7 @@ impl Service {
     /// Returns an I/O error with `ErrorKind::NotConnected` if this `Service` is not currently
     /// connected.
     pub fn peer_addr(&self) -> Result<SocketAddr, io::Error> {
-        unimplemented!();
+        self.shared.lock().unwrap().peer_addr.ok_or(ErrorKind::NotConnected.into())
     }
 
     /// Returns the socket address of the local half of this TCP connection.
@@ -1234,7 +1240,7 @@ impl Service {
     /// Returns an I/O error with `ErrorKind::NotConnected` if this `Service` is not currently
     /// connected.
     pub fn local_addr(&self) -> Result<SocketAddr, io::Error> {
-        unimplemented!();
+        self.shared.lock().unwrap().local_addr.ok_or(ErrorKind::NotConnected.into())
     }
 
     /// Performs an RPC with a specified type and arguments.
