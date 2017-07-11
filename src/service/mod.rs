@@ -32,7 +32,7 @@ pub trait ResolveBuilder {
 }
 
 #[derive(Debug)]
-struct ResolverBuilder {
+pub struct ResolverBuilder {
     name: Cow<'static, str>,
     resolver: FixedResolver,
 }
