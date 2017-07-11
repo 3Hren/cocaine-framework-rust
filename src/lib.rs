@@ -4,7 +4,7 @@
 //! - [x] Send headers.
 //! - [ ] Notify about send events completion.
 //! - [ ] Infinite buffer growing protection.
-//! - [ ] Implement `local_addr` and `peer_addr` for `Service`.
+//! - [x] Implement `local_addr` and `peer_addr` for `Service`.
 //! - [ ] Generic multiplexer over the socket type, allowing to work with both TCP and Unix sockets.
 //! - [ ] Receiving headers.
 //! - [ ] HPACK encoder.
