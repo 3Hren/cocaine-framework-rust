@@ -78,6 +78,8 @@ impl Locator {
 
     /// Resolves a service with the specified name, returning its endpoints, version and methods.
     ///
+    /// # Examples
+    ///
     /// ```no_run
     /// use cocaine::{Core, Service};
     /// use cocaine::service::Locator;

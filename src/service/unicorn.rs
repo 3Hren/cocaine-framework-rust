@@ -83,6 +83,8 @@ impl Unicorn {
     ///
     /// This method returns a future with specified `Deserialize` type.
     ///
+    /// # Examples
+    ///
     /// ```no_run
     /// use cocaine::{Core, Service};
     /// use cocaine::service::Unicorn;
