@@ -31,6 +31,7 @@ pub trait ResolveBuilder {
     fn build(self, handle: &Handle) -> Self::Item;
 }
 
+/// A resolve builder, that builds Locator resolver.
 #[derive(Debug)]
 pub struct ResolverBuilder {
     name: Cow<'static, str>,
