@@ -61,7 +61,7 @@ impl<'a, 'b> Display for Frame<'a, 'b> {
 
 impl<'a, 'b> Frame<'a, 'b> {
     pub fn new(frame: &'b ValueRef<'a>) -> Result<Self, Error> {
-        if let &ValueRef::Array(ref vec) = frame {
+        if let ValueRef::Array(ref vec) = *frame {
             match vec.len() {
                 3 => {
                     let id = vec[0].as_u64().ok_or(Error::SpanTypeMismatch)?;

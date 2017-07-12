@@ -335,7 +335,7 @@ impl MultiplexError {
                 MultiplexError::InvalidProtocol(io::Error::new(err.kind(), error::Error::description(err)))
             }
             MultiplexError::InvalidFraming(ref err) => {
-                MultiplexError::InvalidFraming(err.clone())
+                MultiplexError::InvalidFraming(*err)
             }
         }
     }
@@ -473,7 +473,7 @@ impl<T: Read + Write + SendAll> Multiplex<T> {
 
             debug!("sending {} pending buffer(s) of total {} byte(s) ...",
                 self.pending.len(),
-                self.pending.iter().fold(0, |s, ref x| s + x.ulen()));
+                self.pending.iter().fold(0, |s, x| s + x.ulen()));
 
             match self.send_all() {
                 Ok(mut nlen) => {
@@ -712,7 +712,7 @@ impl Error {
                 Error::InvalidProtocol(io::Error::new(err.kind(), error::Error::description(err)))
             }
             Error::InvalidFraming(ref err) => {
-                Error::InvalidFraming(err.clone())
+                Error::InvalidFraming(*err)
             }
             Error::InvalidDataFraming(ref err) => Error::InvalidDataFraming(err.clone()),
             Error::Service(ref err) => Error::Service(err.clone()),
@@ -754,7 +754,7 @@ impl From<oneshot::Canceled> for Error {
 impl Display for Error {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
         match *self {
-            Error::Io(ref err) => Display::fmt(&err, fmt),
+            Error::Io(ref err) |
             Error::InvalidProtocol(ref err) => Display::fmt(&err, fmt),
             Error::InvalidFraming(ref err) => Display::fmt(&err, fmt),
             Error::InvalidDataFraming(ref err) => Display::fmt(&err, fmt),
@@ -994,7 +994,7 @@ impl<R: Resolve> Future for Supervisor<R> {
                                 MultiplexEvent::Call(Call { dispatch, complete, .. }) => {
                                     // TODO: Return Error::FailedResolve(err.into()).
                                     dispatch.discard(&err);
-                                    drop(complete.send((Err(err.clone()))));
+                                    drop(complete.send(Err(err.clone())));
                                 }
                                 MultiplexEvent::Mute(..) |
                                 MultiplexEvent::Push(..) => {}
@@ -1232,7 +1232,7 @@ impl Service {
     /// Returns an I/O error with `ErrorKind::NotConnected` if this `Service` is not currently
     /// connected.
     pub fn peer_addr(&self) -> Result<SocketAddr, io::Error> {
-        self.shared.lock().unwrap().peer_addr.ok_or(ErrorKind::NotConnected.into())
+        self.shared.lock().unwrap().peer_addr.ok_or_else(|| ErrorKind::NotConnected.into())
     }
 
     /// Returns the socket address of the local half of this TCP connection.
@@ -1240,7 +1240,7 @@ impl Service {
     /// Returns an I/O error with `ErrorKind::NotConnected` if this `Service` is not currently
     /// connected.
     pub fn local_addr(&self) -> Result<SocketAddr, io::Error> {
-        self.shared.lock().unwrap().local_addr.ok_or(ErrorKind::NotConnected.into())
+        self.shared.lock().unwrap().local_addr.ok_or_else(|| ErrorKind::NotConnected.into())
     }
 
     /// Performs an RPC with a specified type and arguments.

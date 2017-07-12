@@ -6,6 +6,7 @@ use tokio_core::net::TcpStream;
 mod unix {
     use std::io::Error;
     use std::os::unix::io::RawFd;
+    use std::ptr;
 
     use libc;
 
@@ -16,11 +17,11 @@ mod unix {
         let len = iov.len() as i32;
 
         let msghdr = libc::msghdr {
-            msg_name: 0 as *mut libc::c_void,
+            msg_name: ptr::null_mut(),
             msg_namelen: 0,
             msg_iov: iov.as_ptr() as *mut libc::iovec,
             msg_iovlen: len,
-            msg_control: 0 as *mut libc::c_void,
+            msg_control: ptr::null_mut(),
             msg_controllen: 0,
             msg_flags: 0,
         };
