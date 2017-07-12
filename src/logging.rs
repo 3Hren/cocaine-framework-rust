@@ -330,6 +330,61 @@ impl Filter {
     }
 }
 
+/// Logs a message using logger into the Logging Service.
+///
+/// This macro supports the standard lazy formatting using `format!` with all its compile-time type
+/// and positional checking.
+///
+/// Since Cocaine Logging is a structured logger, additional attributes can be attached to an event.
+///
+/// # Examples.
+///
+/// ```no_run
+/// #[macro_use]
+/// extern crate cocaine;
+///
+/// use cocaine::logging::{LoggerContext, Severity};
+///
+/// # fn main() {
+/// let ctx = LoggerContext::default();
+/// let log = ctx.create("app/example");
+///
+/// cocaine_log!(log, Severity::Info, "nginx/1.6 configured");
+/// cocaine_log!(log, Severity::Info, "{} {} HTTP/1.1 {} {}", "GET", "/static/image.png", 404, 347);
+/// # }
+/// ```
+///
+/// You can additionally attach any number of key-value attributes:
+///
+/// ```no_run
+/// #[macro_use]
+/// extern crate cocaine;
+///
+/// use cocaine::logging::{LoggerContext, Severity};
+///
+/// # fn main() {
+/// let ctx = LoggerContext::default();
+/// let log = ctx.create("app/example");
+///
+/// cocaine_log!(log, Severity::Info, "nginx/1.6 configured"; {
+///     config: "/etc/nginx/nginx.conf",
+///     elapsed: 42.15,
+/// });
+///
+/// cocaine_log!(log, Severity::Warn, "client stopped connection before send body completed"; {
+///     host: "::1",
+///     port: 10053,
+/// });
+///
+/// cocaine_log!(log, Severity::Error, "file does not exist: {}", "/var/www/favicon.ico"; {
+///     path: "/",
+///     cache: true,
+///     method: "GET",
+///     version: 1.1,
+///     protocol: "HTTP",
+/// });
+/// # }
+/// ```
 #[macro_export]
 macro_rules! cocaine_log(
     (__unwrap # {}) => {
