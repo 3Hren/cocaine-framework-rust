@@ -1,5 +1,7 @@
 use std::io::Error;
 
+use futures::Async;
+
 use tokio_core::net::TcpStream;
 
 #[cfg(unix)]
@@ -35,6 +37,18 @@ mod unix {
         } else {
             Ok(rc as usize)
         }
+    }
+}
+
+/// Allow I/O writers to be interest of an event loop.
+pub trait PollWrite {
+    /// Tests to see if this source is ready to be written to or not.
+    fn poll_write(&self) -> Async<()>;
+}
+
+impl PollWrite for TcpStream {
+    fn poll_write(&self) -> Async<()> {
+        TcpStream::poll_write(self)
     }
 }
 

@@ -74,7 +74,7 @@ use self::hpack::Header;
 pub use self::resolve::{FixedResolver, Resolve, Resolver};
 pub use self::service::ServiceBuilder;
 pub use self::service::locator::EventGraph;
-use self::sys::SendAll;
+use self::sys::{PollWrite, SendAll};
 
 const FRAME_LENGTH: u32 = 4;
 
@@ -396,7 +396,7 @@ fn unexpected_eof() -> io::Error {
     ErrorKind::UnexpectedEof.into()
 }
 
-impl<T: Read + Write + SendAll> Multiplex<T> {
+impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
     pub fn new(sock: T, peer: SocketAddr) -> Self {
         Multiplex {
             id: 0,
@@ -492,7 +492,9 @@ impl<T: Read + Write + SendAll> Multiplex<T> {
                     }
                 }
                 Err(ref err) if err.kind() == ErrorKind::WouldBlock => {
-                    break;
+                    if let NotReady = self.sock.poll_write() {
+                        break;
+                    }
                 }
                 Err(err) => {
                     error!("failed to send bytes: {}", err);
@@ -616,7 +618,7 @@ impl<T: Read + Write + SendAll> Multiplex<T> {
     }
 }
 
-impl<T: Read + Write + SendAll> Future for Multiplex<T> {
+impl<T: Read + Write + SendAll + PollWrite> Future for Multiplex<T> {
     type Item = ();
     type Error = MultiplexError;
 
