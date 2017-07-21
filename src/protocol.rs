@@ -22,6 +22,7 @@ impl Error {
             description: description,
         }
     }
+    
     /// Returns error category number.
     pub fn category(&self) -> i64 {
         self.error.0
