@@ -12,6 +12,7 @@ mod unix {
 
     use libc;
 
+    #[allow(unused)]
     pub fn sendmsg(fd: RawFd, iov: &[&[u8]]) -> Result<usize, Error> {
         #[cfg(target_os = "linux")]
         let len = iov.len() as usize;
@@ -61,27 +62,30 @@ pub trait SendAll {
 #[cfg(unix)]
 impl SendAll for TcpStream {
     fn send_all(&mut self, iov: &[&[u8]]) -> Result<usize, Error> {
-        use std::os::unix::io::AsRawFd;
-
-        unix::sendmsg(self.as_raw_fd(), iov)
+        // TODO: Temporary fallback, replace with `unix::sendmsg(self.as_raw_fd(), iov)`.
+        send_all(self, iov)
     }
+}
+
+fn send_all(stream: &mut TcpStream, iov: &[&[u8]]) -> Result<usize, Error> {
+    use std::io::Write;
+
+    let mut nsent = 0;
+    for buf in iov {
+        let len = stream.write(buf)?;
+        nsent += len;
+
+        if len != buf.len() {
+            break;
+        }
+    }
+
+    Ok(nsent)
 }
 
 #[cfg(windows)]
 impl SendAll for TcpStream {
     fn send_all(&mut self, iov: &[&[u8]]) -> Result<usize, Error> {
-        use std::io::Write;
-
-        let mut nsend = 0;
-        for buf in iov {
-            let len = self.write(buf)?;
-            nsend += len;
-
-            if len != buf.len() {
-                break;
-            }
-        }
-
-        Ok(nsend)
+        send_all(self, iov)
     }
 }

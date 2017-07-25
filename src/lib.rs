@@ -493,9 +493,7 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
                     }
                 }
                 Err(ref err) if err.kind() == ErrorKind::WouldBlock => {
-                    if let NotReady = self.sock.poll_write() {
-                        break;
-                    }
+                    break;
                 }
                 Err(err) => {
                     error!("failed to send bytes: {}", err);
