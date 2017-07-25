@@ -17,6 +17,7 @@
 
 #[macro_use]
 extern crate bitflags;
+extern crate byteorder;
 extern crate futures;
 extern crate libc;
 #[macro_use]
@@ -70,7 +71,7 @@ mod sys;
 
 use net::connect;
 use self::frame::Frame;
-use self::hpack::Header;
+use self::hpack::RawHeader;
 pub use self::resolve::{FixedResolver, Resolve, Resolver};
 pub use self::service::ServiceBuilder;
 pub use self::service::locator::EventGraph;
@@ -127,7 +128,7 @@ fn flatten_err<T, E>(result: Result<Result<T, Error>, E>) -> Result<T, Error>
 struct Call {
     ty: u64,
     data: Vec<u8>,
-    headers: Vec<Header>,
+    headers: Vec<RawHeader>,
     complete: oneshot::Sender<Result<u64, Error>>,
     dispatch: Box<Dispatch>,
 }
@@ -208,7 +209,7 @@ struct MessageBuf {
 }
 
 impl MessageBuf {
-    fn new(id: u64, ty: u64, mut data: Vec<u8>, headers: Vec<Header>) -> Result<Self, io::Error> {
+    fn new(id: u64, ty: u64, mut data: Vec<u8>, headers: Vec<RawHeader>) -> Result<Self, io::Error> {
         let mut head = [0; 32];
         let head_len = MessageBuf::encode_head(&mut head[..], id, ty)?;
         let mut head = Window::new(head);
@@ -233,7 +234,7 @@ impl MessageBuf {
         Ok(cur.position() as usize)
     }
 
-    fn encode_headers<W>(wr: &mut W, headers: Vec<Header>) -> Result<(), io::Error>
+    fn encode_headers<W>(wr: &mut W, headers: Vec<RawHeader>) -> Result<(), io::Error>
         where W: Write
     {
         rmp::encode::write_array_len(wr, headers.len() as u32)?;
@@ -427,13 +428,13 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
         }
     }
 
-    fn invoke(&mut self, ty: u64, data: Vec<u8>, headers: Vec<Header>, complete: oneshot::Sender<Result<u64, Error>>) {
+    fn invoke(&mut self, ty: u64, data: Vec<u8>, headers: Vec<RawHeader>, complete: oneshot::Sender<Result<u64, Error>>) {
         self.id += 1;
         let id = self.id;
         self.push(id, ty, data, headers, || Notify::Call(id, complete));
     }
 
-    fn push<F>(&mut self, id: u64, ty: u64, data: Vec<u8>, headers: Vec<Header>, f: F)
+    fn push<F>(&mut self, id: u64, ty: u64, data: Vec<u8>, headers: Vec<RawHeader>, f: F)
         where F: FnOnce() -> Notify
     {
         let mbuf = MessageBuf::new(id, ty, data, headers).expect("failed to pack frame header");
@@ -1257,7 +1258,7 @@ impl Service {
     /// For mute RPC use [`call_mute`][call_mute] instead.
     ///
     /// [call_mute]: #method.call_mute
-    pub fn call<T, D>(&self, ty: u64, args: &T, headers: Vec<Header>, dispatch: D) -> impl Future<Item=Sender, Error=Error>
+    pub fn call<T, D>(&self, ty: u64, args: &T, headers: Vec<RawHeader>, dispatch: D) -> impl Future<Item=Sender, Error=Error>
         where T: Serialize,
               D: Dispatch + 'static
     {

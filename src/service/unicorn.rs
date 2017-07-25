@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use {Error, Sender, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
-use hpack::Header;
+use hpack::RawHeader;
 use protocol::Flatten;
 
 /// A value version.
@@ -129,7 +129,7 @@ impl Unicorn {
         impl Future<Item=(Close, BoxStream<(Option<T>, Version), Error>), Error=Error>
     where
         T: for<'de> Deserialize<'de> + Send + 'static,
-        H: Into<Option<Vec<Header>>>
+        H: Into<Option<Vec<RawHeader>>>
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
