@@ -87,10 +87,14 @@ fn connection_refused_because_invalid_framing() {
         .build(&core.handle());
 
     match core.run(service.connect()).err().unwrap() {
-        Error::InvalidDataFraming(..) => {}
+        Error::InvalidDataFraming(..) |
+        Error::Canceled => {}
         err => panic!("expected `InvalidDataFraming` error, actual {:?}", err),
     }
-    core.run(rx).unwrap();
+    match core.run(rx) {
+        Ok(()) => {}
+        Err(futures::Canceled) => {}
+    }
     thread.join().unwrap();
 }
 
@@ -141,8 +145,15 @@ fn dispatch_receives_rst() {
 
     let (tx, rx) = oneshot::channel();
 
-    core.run(service.call(0, &["node"], Vec::new(), MockDispatch { tx: tx })).unwrap();
-    core.run(rx).unwrap();
+    match core.run(service.call(0, &["node"], Vec::new(), MockDispatch { tx: tx })) {
+        Ok(..) => {}
+        Err(Error::Io(ref err)) if err.kind() == ErrorKind::BrokenPipe => {}
+        Err(err) => panic!("expected I/O error, actual {:?}", err),
+    }
+    match core.run(rx) {
+        Ok(()) => {}
+        Err(futures::Canceled) => {}
+    }
 
     thread.join().unwrap();
 }
