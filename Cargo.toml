@@ -1,12 +1,13 @@
 [package]
 name = "cocaine"
-version = "0.5.3"
+version = "0.6.0"
 authors = ["Evgeny Safronov <division494@gmail.com>"]
 description = "Cocaine Framework Rust"
 keywords = ["Cocaine"]
 license = "MIT"
 
 [dependencies]
+byteorder = "1"
 serde = "1"
 serde_derive = "1"
 
