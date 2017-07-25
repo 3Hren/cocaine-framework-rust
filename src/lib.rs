@@ -249,15 +249,19 @@ impl MessageBuf {
         Ok(())
     }
 
-    fn ulen(&self) -> usize {
+    fn remaining(&self) -> usize {
         self.head.as_ref().len() + self.data.as_ref().len()
     }
 
+    /// Advance the internal cursor of the `MessageBuf`.
+    ///
     /// # Panics
     ///
-    /// This method will panic if `n` is out of bounds for the underlying slice or if it comes
+    /// This method will panic if `num` is out of bounds for the underlying slice or if it comes
     /// after the end configured in this message.
-    fn eat(&mut self, mut num: usize) {
+    fn advance(&mut self, num: usize) {
+        let mut num = num;
+
         if num < self.head.as_ref().len() {
             let from = self.head.start();
             self.head.set_start(from + num);
@@ -295,12 +299,12 @@ struct Message {
 
 impl Message {
     /// Unwritten length.
-    fn ulen(&self) -> usize {
-        self.mbuf.ulen()
+    fn remaining(&self) -> usize {
+        self.mbuf.remaining()
     }
 
-    fn eat(&mut self, n: usize) {
-        self.mbuf.eat(n)
+    fn advance(&mut self, n: usize) {
+        self.mbuf.advance(n)
     }
 
     fn complete(self, val: Result<(), io::Error>) {
@@ -474,17 +478,17 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
 
             debug!("sending {} pending buffer(s) of total {} byte(s) ...",
                 self.pending.len(),
-                self.pending.iter().fold(0, |s, x| s + x.ulen()));
+                self.pending.iter().fold(0, |s, x| s + x.remaining()));
 
             match self.send_all() {
                 Ok(mut nlen) => {
                     debug!("sent {} bytes", nlen);
                     while nlen > 0 {
                         // We're sure about unwrapping here, because messages are immutable.
-                        let bytes_left = self.pending.front().unwrap().ulen();
+                        let bytes_left = self.pending.front().unwrap().remaining();
 
                         if bytes_left > nlen {
-                            self.pending.front_mut().unwrap().eat(nlen);
+                            self.pending.front_mut().unwrap().advance(nlen);
                             break;
                         }
 
