@@ -93,7 +93,7 @@ impl Header for ParentId {
 
 /// A header which determines whether the entire traced path should be logged verbosely.
 #[derive(Clone, Debug, PartialEq)]
-struct TraceBit(bool);
+pub struct TraceBit(bool);
 
 impl Header for TraceBit {
     fn name() -> &'static [u8] {
