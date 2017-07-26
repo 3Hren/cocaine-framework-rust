@@ -43,7 +43,7 @@ fn pack_u64(v: u64) -> Vec<u8> {
 ///
 /// Represents a trace id - a number, which identifies the request.
 #[derive(Clone, Debug, PartialEq)]
-pub struct TraceId(u64);
+pub struct TraceId(pub u64);
 
 impl Header for TraceId {
     fn name() -> &'static [u8] {
@@ -61,7 +61,7 @@ impl Header for TraceId {
 ///
 /// Represents a span id - a number, which identifies the sub-request.
 #[derive(Clone, Debug, PartialEq)]
-pub struct SpanId(u64);
+pub struct SpanId(pub u64);
 
 impl Header for SpanId {
     fn name() -> &'static [u8] {
@@ -77,7 +77,7 @@ impl Header for SpanId {
 
 /// Header for identifying a parent of the current span.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ParentId(u64);
+pub struct ParentId(pub u64);
 
 impl Header for ParentId {
     fn name() -> &'static [u8] {
@@ -93,7 +93,7 @@ impl Header for ParentId {
 
 /// A header which determines whether the entire traced path should be logged verbosely.
 #[derive(Clone, Debug, PartialEq)]
-pub struct TraceBit(bool);
+pub struct TraceBit(pub bool);
 
 impl Header for TraceBit {
     fn name() -> &'static [u8] {
