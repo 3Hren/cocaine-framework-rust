@@ -101,6 +101,8 @@ pub trait Dispatch: Send {
     /// Passing `Some(..)` as a result type forces the multiplexer to re-register either new or the
     /// same `Dispatch` for processing new messages from the same channel again. Returning `None`
     /// terminates channel processing.
+    /// It is also possible to completely switch dispatches at runtime, because of dynamic
+    /// dispatching.
     ///
     /// [deserialize]: protocol/fn.deserialize.html
     fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>>;
