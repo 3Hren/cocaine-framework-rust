@@ -596,7 +596,7 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
                     let len = self.ring.len();
                     if pending * 2 >= len {
                         // The total size of unprocessed data in larger than half the size of the
-                        // ring, so grow the ring in order to accomodate more data.
+                        // ring, so grow the ring in order to accommodate more data.
                         self.ring.resize(len * 2, 0);
                         debug!("resized rdbuf to {}", self.ring.len());
                     }
