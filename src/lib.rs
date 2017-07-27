@@ -196,7 +196,6 @@ impl Into<MultiplexEvent> for Push {
 
 // TODO: There are common fields: ty and data.
 // TODO: Rename `data` to `args`?
-// TODO: Add headers, possibly as a placeholder right now.
 // TODO: Add `tx` to the `Push`. Future<Result<(), Error>>.
 #[derive(Debug)]
 enum MultiplexEvent {
