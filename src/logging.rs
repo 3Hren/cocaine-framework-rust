@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread::{self, JoinHandle};
 
 use futures::{future, Future, Stream};
-use futures::sync::mpsc;
+use futures::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use tokio_core::reactor::Core;
 
@@ -29,8 +29,8 @@ struct Inner {
 }
 
 impl Inner {
-    fn new(name: Cow<'static, str>, tx: mpsc::UnboundedSender<Event>, rx: mpsc::UnboundedReceiver<Event>) -> Self {
         let thread = thread::spawn(move || {
+    fn new(name: Cow<'static, str>, tx: UnboundedSender<Event>, rx: UnboundedReceiver<Event>) -> Self {
             let mut core = Core::new().expect("failed to initialize logger event loop");
             let handle = core.handle();
 
@@ -150,7 +150,7 @@ impl FromStr for Severity {
 /// [filter]: #method.filter
 #[derive(Clone)]
 pub struct LoggerContext {
-    tx: mpsc::UnboundedSender<Event>,
+    tx: UnboundedSender<Event>,
     name: Cow<'static, str>,
     inner: Arc<Inner>,
     filter: Filter,
