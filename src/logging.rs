@@ -29,8 +29,8 @@ struct Inner {
 }
 
 impl Inner {
-        let thread = thread::spawn(move || {
     fn new(name: Cow<'static, str>, tx: UnboundedSender<Event>, rx: UnboundedReceiver<Event>) -> Self {
+        let thread = thread::Builder::new().name("logging".into()).spawn(move || {
             let mut core = Core::new().expect("failed to initialize logger event loop");
             let handle = core.handle();
 
@@ -53,7 +53,7 @@ impl Inner {
             });
 
             drop(core.run(future.fold(0, |acc, _v| future::ok(acc))));
-        });
+        }).expect("failed to create logging thread");
 
         Self { tx: tx, thread: Some(thread) }
     }
