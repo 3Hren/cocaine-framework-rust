@@ -176,6 +176,7 @@ struct Push {
     id: u64,
     ty: u64,
     data: Vec<u8>,
+    complete: oneshot::Sender<Result<(), Error>>,
 }
 
 impl Debug for Push {
@@ -281,14 +282,14 @@ impl MessageBuf {
 
 enum Notify {
     Call(u64, oneshot::Sender<Result<u64, Error>>),
-    Push,
+    Push(oneshot::Sender<Result<(), Error>>),
 }
 
 impl Notify {
     fn complete(self, val: Result<(), io::Error>) {
         match self {
             Notify::Call(id, tx) => drop(tx.send(val.and(Ok(id)).map_err(Error::Io))),
-            Notify::Push => {}
+            Notify::Push(tx) => drop(tx.send(val.map_err(Error::Io))),
         }
     }
 }
@@ -427,8 +428,8 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
             MultiplexEvent::Mute(Mute { ty, data, complete }) => {
                 self.invoke(ty, data, Vec::new(), complete);
             }
-            MultiplexEvent::Push(Push { id, ty, data }) => {
-                self.push(id, ty, data, Vec::new(), || Notify::Push)
+            MultiplexEvent::Push(Push { id, ty, data, complete }) => {
+                self.push(id, ty, data, Vec::new(), || Notify::Push(complete))
             }
         }
     }
@@ -671,17 +672,21 @@ impl Sender {
         Sender { id: id, tx: tx }
     }
 
-    pub fn send<T>(&self, ty: u64, args: &T)
+    pub fn send<T>(&self, ty: u64, args: &T) -> impl Future<Item = (), Error = Error>
         where T: Serialize
     {
+        let (tx, rx) = oneshot::channel();
         let buf = rmps::to_vec(args).unwrap();
 
         let event = Push {
             id: self.id,
             ty: ty,
             data: buf,
+            complete: tx,
         };
         self.tx.send(Event::Push(event)).unwrap();
+
+        rx.then(flatten_err)
     }
 }
 
@@ -839,7 +844,7 @@ impl Debug for Event {
                     .field("len", &data.len())
                     .finish()
             }
-            Event::Push(Push { id, ty, ref data }) => {
+            Event::Push(Push { id, ty, ref data, .. }) => {
                 fmt.debug_struct("Event::Push")
                     .field("id", &id)
                     .field("ty", &ty)
