@@ -27,16 +27,18 @@ impl Drop for Sender {
     }
 }
 
+/// Application service wrapper.
 #[derive(Debug)]
 pub struct App {
     service: Service,
 }
 
 impl App {
+    /// Constructs an application service wrapper using the specified service.
     pub fn new(service: Service) -> Self {
         Self { service: service }
     }
-
+    
     pub fn enqueue<'a>(&self, event: &'a str) ->
         impl Future<Item = (Sender, UnboundedReceiver<Result<String, Error>>), Error = Error> + 'a
     {
