@@ -38,7 +38,7 @@ impl App {
     pub fn new(service: Service) -> Self {
         Self { service: service }
     }
-    
+
     pub fn enqueue<'a>(&self, event: &'a str) ->
         impl Future<Item = (Sender, UnboundedReceiver<Result<String, Error>>), Error = Error> + 'a
     {
