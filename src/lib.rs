@@ -777,7 +777,26 @@ impl Display for Error {
 
 impl error::Error for Error {
     fn description(&self) -> &str {
-        unimplemented!();
+        match *self {
+            Error::Io(..) => "operation has been aborted due to I/O error",
+            Error::InvalidProtocol(..) => "transport protocol error",
+            Error::InvalidFraming(..) => "invalid framing",
+            Error::InvalidDataFraming(..) =>
+                "failed to unpack data frame into the expected type",
+            Error::Service(..) => "service error",
+            Error::Canceled => "operation has been canceled",
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            Error::Io(ref err) |
+            Error::InvalidProtocol(ref err) => Some(err),
+            Error::InvalidFraming(ref err) => Some(err),
+            Error::InvalidDataFraming(..) |
+            Error::Service(..) |
+            Error::Canceled => None,
+        }
     }
 }
 
