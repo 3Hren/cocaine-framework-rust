@@ -672,6 +672,10 @@ impl Sender {
         Sender { id: id, tx: tx }
     }
 
+    /// Sends a new data chunk into the channel associated with this upstream.
+    ///
+    /// Returns a future that is completed when a chunk is completely written into the underlying
+    /// socket or some error occurred.
     pub fn send<T>(&self, ty: u64, args: &T) -> impl Future<Item = (), Error = Error>
         where T: Serialize
     {
