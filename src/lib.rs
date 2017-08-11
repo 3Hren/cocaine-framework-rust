@@ -676,6 +676,12 @@ impl Sender {
     ///
     /// Returns a future that is completed when a chunk is completely written into the underlying
     /// socket or some error occurred.
+    ///
+    /// This is the lowest-level API for working with services. You'd probably like to use one of
+    /// the provided wrappers, like [App][app] or [Unicorn][unicorn].
+    ///
+    /// [App]: service/app/struct.App.html
+    /// [Unicorn]: service/unicorn/struct.Unicorn.html
     pub fn send<T>(&self, ty: u64, args: &T) -> impl Future<Item = (), Error = Error>
         where T: Serialize
     {
