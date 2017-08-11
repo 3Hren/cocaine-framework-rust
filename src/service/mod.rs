@@ -154,7 +154,6 @@ impl ServiceBuilder<ResolverBuilder> {
     /// with `MemoryOverflow` error code and this is guaranteed that those bytes won't be written
     /// into the socket until retried.
     pub fn memory_limit(self, _nbytes: usize) -> Self {
-        // TODO: To allow this we must return a future from `Sender::send`.
         unimplemented!();
     }
 
