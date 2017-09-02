@@ -5,8 +5,6 @@ extern crate futures_await as futures;
 #[macro_use]
 extern crate serde_derive;
 
-use std::mem;
-
 use futures::prelude::*;
 
 use cocaine::{Core, Error, Service};
