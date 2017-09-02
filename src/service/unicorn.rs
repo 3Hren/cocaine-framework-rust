@@ -28,6 +28,10 @@ pub struct Close {
     sender: Sender,
 }
 
+impl Close {
+    pub fn close(self) {}
+}
+
 impl Drop for Close {
     fn drop(&mut self) {
         self.sender.send(0, &[0; 0]);
