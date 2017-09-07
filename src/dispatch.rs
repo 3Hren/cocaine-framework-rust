@@ -77,7 +77,7 @@ impl<T> StreamingDispatch<T> {
     fn send(self: Box<Self>, result: Result<T, Error>) -> Option<Box<Dispatch>>
         where T: for<'de> Deserialize<'de> + Send + 'static
     {
-        if self.tx.send(result).is_ok() {
+        if self.tx.unbounded_send(result).is_ok() {
             Some(self)
         } else {
             None
@@ -95,6 +95,6 @@ impl<T: for<'de> Deserialize<'de> + Send + 'static> Dispatch for StreamingDispat
     }
 
     fn discard(self: Box<Self>, err: &Error) {
-        drop(self.tx.send(Err(err.clone())))
+        drop(self.tx.unbounded_send(Err(err.clone())))
     }
 }
