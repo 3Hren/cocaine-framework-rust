@@ -61,7 +61,7 @@ impl Inner {
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        self.tx.send(Event::Close).unwrap();
+        self.tx.unbounded_send(Event::Close).unwrap();
         self.thread.take().unwrap().join().unwrap();
     }
 }
@@ -303,7 +303,7 @@ impl Log for Logger {
     }
 
     fn __emit(&self, buf: Vec<u8>) {
-        self.parent.tx.send(Event::Write(buf)).unwrap();
+        self.parent.tx.unbounded_send(Event::Write(buf)).unwrap();
     }
 }
 

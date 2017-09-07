@@ -694,7 +694,7 @@ impl Sender {
             data: buf,
             complete: tx,
         };
-        self.tx.send(Event::Push(event)).unwrap();
+        self.tx.unbounded_send(Event::Push(event)).unwrap();
 
         rx.then(flatten_err)
     }
@@ -1245,7 +1245,7 @@ impl Service {
     /// away a connection delay by doing pre-connection using this method.
     pub fn connect(&self) -> impl Future<Item=(), Error=Error> {
         let (tx, rx) = oneshot::channel();
-        self.tx.send(Event::Connect(tx)).unwrap();
+        self.tx.unbounded_send(Event::Connect(tx)).unwrap();
         rx.then(flatten_err)
     }
 
@@ -1264,7 +1264,7 @@ impl Service {
 
     /// Disconnects from a remote service without discarding pending requests.
     pub fn disconnect(&self) {
-        self.tx.send(Event::Disconnect).expect("communication channel must live");
+        self.tx.unbounded_send(Event::Disconnect).expect("communication channel must live");
     }
 
     /// Returns the socket address of the remote peer of this TCP connection.
@@ -1310,7 +1310,7 @@ impl Service {
             dispatch: box dispatch,
             complete: tx,
         };
-        self.tx.send(Event::Call(event)).unwrap();
+        self.tx.unbounded_send(Event::Call(event)).unwrap();
 
         let tx = self.tx.clone();
 
@@ -1341,7 +1341,7 @@ impl Service {
             data: buf,
             complete: tx,
         };
-        self.tx.send(Event::Mute(event)).unwrap();
+        self.tx.unbounded_send(Event::Mute(event)).unwrap();
 
         let tx = self.tx.clone();
 
