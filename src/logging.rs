@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread::{self, JoinHandle};
 
-use futures::{future, Future, Stream};
+use futures::{future, Stream};
 use futures::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use tokio_core::reactor::Core;
@@ -37,7 +37,7 @@ impl Inner {
             let service = Service::new(name, &handle);
 
             let future = rx.and_then(|event| {
-                match event {
+                box match event {
                     Event::Write(buf) => {
                         // TODO: For unknown reasons this one hangs until external reconnection
                         // after sending some messages.
@@ -46,9 +46,9 @@ impl Inner {
 //                            Ok(())
 //                        }).boxed()
                         service.call_mute_raw(0, buf);
-                        future::ok(()).boxed()
+                        future::ok(())
                     }
-                    Event::Close => future::err(()).boxed()
+                    Event::Close => future::err(())
                 }
             });
 
