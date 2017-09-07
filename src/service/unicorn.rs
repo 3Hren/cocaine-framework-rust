@@ -1,5 +1,4 @@
 use futures::{Future, Stream};
-use futures::stream::{BoxStream};
 use futures::sync::mpsc;
 
 use rmpv::{self, Value};
@@ -130,7 +129,7 @@ impl Unicorn {
     /// In addition to common errors this method also emits `Error::InvalidDataFraming` on failed
     /// attempt to deserialize the received value into the specified type.
     pub fn subscribe<T, H>(&self, path: String, headers: H) ->
-        impl Future<Item=(Close, BoxStream<(Option<T>, Version), Error>), Error=Error>
+        impl Future<Item=(Close, Box<Stream<Item=(Option<T>, Version), Error=Error> + Send>), Error=Error>
     where
         T: for<'de> Deserialize<'de> + Send + 'static,
         H: Into<Option<Vec<RawHeader>>>
@@ -159,17 +158,16 @@ impl Unicorn {
     /// This method returns a future, which can be split into a cancellation token and a stream,
     /// which will return the actual list of children on each child creation or deletion. Other
     /// operations, such as children mutation, are not the subject of this method.
-    pub fn children_subscribe<'a>(&self, path: String) ->
-        impl Future<Item=(Close, BoxStream<(Version, Vec<String>), Error>), Error=Error> + 'a
+    pub fn children_subscribe(&self, path: String) ->
+        impl Future<Item=(Close, Box<Stream<Item=(Version, Vec<String>), Error=Error> + Send>), Error=Error>
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
         self.service.call(Method::ChildrenSubscribe.into(), &[path], Vec::new(), dispatch).and_then(|sender| {
             let handle = Close { sender: sender };
             let stream = rx.map_err(|()| Error::Canceled)
-                .then(Flatten::flatten)
-                .boxed();
+                .then(Flatten::flatten).boxed();
             Ok((handle, stream))
-        }).boxed()
+        })
     }
 }
