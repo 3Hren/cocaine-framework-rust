@@ -16,7 +16,7 @@ use net2::TcpStreamExt;
 use rmpv::ValueRef;
 use tokio_core::reactor::Core;
 
-use cocaine::{Dispatch, Error, FixedResolver, ServiceBuilder};
+use cocaine::{Dispatch, Error, FixedResolver, Request, ServiceBuilder};
 
 fn endpoint() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0)
@@ -145,7 +145,7 @@ fn dispatch_receives_rst() {
 
     let (tx, rx) = oneshot::channel();
 
-    match core.run(service.call(0, &["node"], Vec::new(), MockDispatch { tx: tx })) {
+    match core.run(service.call(Request::new(0, &["node"]).unwrap(), MockDispatch { tx: tx })) {
         Ok(..) => {}
         Err(Error::Io(ref err)) if err.kind() == ErrorKind::BrokenPipe => {}
         Err(err) => panic!("expected I/O error, actual {:?}", err),

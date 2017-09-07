@@ -5,7 +5,7 @@ use rmpv::{self, Value};
 
 use serde::Deserialize;
 
-use {Error, Sender, Service};
+use {Error, Request, Sender, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
 use hpack::RawHeader;
 use protocol::Flatten;
@@ -33,7 +33,7 @@ impl Close {
 
 impl Drop for Close {
     fn drop(&mut self) {
-        self.sender.send(0, &[0; 0]);
+        self.sender.send(Request::new(0, &[0; 0]).unwrap());
     }
 }
 
@@ -79,7 +79,7 @@ impl Unicorn {
     /// A `Service` is meant to be properly configured to point at "unicorn" service. Violating
     /// this will result in various framing errors.
     pub fn new(service: Service) -> Self {
-        Self { service: service }
+        Self { service }
     }
 
     /// Obtains a value with its version stored at specified path.
@@ -105,7 +105,7 @@ impl Unicorn {
         T: for<'de> Deserialize<'de>
     {
         let (dispatch, future) = PrimitiveDispatch::pair();
-        self.service.call(Method::Get.into(), &[path], Vec::new(), dispatch);
+        self.service.call(Request::new(Method::Get.into(), &[path]).unwrap(), dispatch);
 
         future.and_then(|(val, version): (Value, Version)| {
             match rmpv::ext::deserialize_from(val) {
@@ -128,7 +128,7 @@ impl Unicorn {
     ///
     /// In addition to common errors this method also emits `Error::InvalidDataFraming` on failed
     /// attempt to deserialize the received value into the specified type.
-    pub fn subscribe<T, H>(&self, path: String, headers: H) ->
+    pub fn subscribe<T, H>(&self, path: &str, headers: H) ->
         impl Future<Item=(Close, Box<Stream<Item=(Option<T>, Version), Error=Error> + Send>), Error=Error>
     where
         T: for<'de> Deserialize<'de> + Send + 'static,
@@ -137,7 +137,9 @@ impl Unicorn {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
         let headers = headers.into().unwrap_or_default();
-        self.service.call(Method::Subscribe.into(), &[path], headers, dispatch).and_then(|sender| {
+        let request = Request::new(Method::Subscribe.into(), &[path]).unwrap()
+            .add_headers(headers);
+        self.service.call(request, dispatch).and_then(|sender| {
             let handle = Close { sender: sender };
             let stream = box rx.map_err(|()| Error::Canceled)
                 .then(Flatten::flatten)
@@ -157,12 +159,12 @@ impl Unicorn {
     /// This method returns a future, which can be split into a cancellation token and a stream,
     /// which will return the actual list of children on each child creation or deletion. Other
     /// operations, such as children mutation, are not the subject of this method.
-    pub fn children_subscribe(&self, path: String) ->
+    pub fn children_subscribe(&self, path: &str) ->
         impl Future<Item=(Close, Box<Stream<Item=(Version, Vec<String>), Error=Error> + Send>), Error=Error>
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
-        self.service.call(Method::ChildrenSubscribe.into(), &[path], Vec::new(), dispatch).and_then(|sender| {
+        self.service.call(Request::new(Method::ChildrenSubscribe.into(), &[path]).unwrap(), dispatch).and_then(|sender| {
             let handle = Close { sender: sender };
             let stream = box rx.map_err(|()| Error::Canceled)
                 .then(Flatten::flatten) as Box<Stream<Item=(Version, Vec<String>), Error=Error> + Send>;

@@ -14,7 +14,7 @@ use futures::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use tokio_core::reactor::Core;
 
-use Service;
+use {Request, Service};
 
 const DEFAULT_LOGGING_NAME: &str = "logging";
 
@@ -45,7 +45,7 @@ impl Inner {
 //                            drop(tx);
 //                            Ok(())
 //                        }).boxed()
-                        service.call_mute_raw(0, buf);
+                        service.call_mute(Request::from_buf(0, buf));
                         future::ok(())
                     }
                     Event::Close => future::err(())

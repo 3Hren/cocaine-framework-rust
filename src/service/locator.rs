@@ -4,7 +4,7 @@ use std::net::{IpAddr, SocketAddr};
 use futures::{Future, Stream};
 use futures::sync::mpsc;
 
-use {Error, Service};
+use {Error, Request, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
 use protocol::Flatten;
 use resolve::ResolveInfo as OuterResolveInfo;
@@ -93,7 +93,7 @@ impl Locator {
     /// ```
     pub fn resolve(&self, name: &str) -> impl Future<Item = Info, Error = Error> {
         let (dispatch, future) = PrimitiveDispatch::pair();
-        self.service.call(Method::Resolve.into(), &[name], Vec::new(), dispatch);
+        self.service.call(Request::new(Method::Resolve.into(), &[name]).unwrap(), dispatch);
 
         future.map(|ResolveInfo{addrs, version, methods}| {
             let addrs = addrs.into_iter()
@@ -113,7 +113,7 @@ impl Locator {
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
-        self.service.call(Method::Routing.into(), &[uuid], Vec::new(), dispatch);
+        self.service.call(Request::new(Method::Routing.into(), &[uuid]).unwrap(), dispatch);
         rx.map_err(|()| Error::Canceled).then(Flatten::flatten)
     }
 }

@@ -1,6 +1,5 @@
 extern crate cocaine;
 extern crate futures;
-extern crate rmpv;
 #[macro_use]
 extern crate slog;
 extern crate slog_envlogger;

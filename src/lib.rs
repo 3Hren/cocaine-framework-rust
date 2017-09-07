@@ -2,7 +2,7 @@
 //!
 //! - [x] Unicorn wrapper.
 //! - [x] Send headers.
-//! - [ ] Notify about send events completion.
+//! - [x] Notify about send events completion.
 //! - [ ] Infinite buffer growing protection.
 //! - [x] Implement `local_addr` and `peer_addr` for `Service`.
 //! - [ ] Generic multiplexer over the socket type, allowing to work with both TCP and Unix sockets.
@@ -47,8 +47,6 @@ use futures::stream::Fuse;
 use futures::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;
 
-use serde::Serialize;
-
 use tokio_core::net::TcpStream;
 pub use tokio_core::reactor::Core;
 use tokio_core::reactor::Handle;
@@ -66,6 +64,7 @@ pub mod logging;
 mod net;
 pub mod protocol;
 mod resolve;
+mod request;
 pub mod service;
 mod sys;
 
@@ -73,6 +72,7 @@ use net::connect;
 use self::frame::Frame;
 use self::hpack::RawHeader;
 pub use self::resolve::{FixedResolver, Resolve, Resolver};
+pub use self::request::Request;
 pub use self::service::ServiceBuilder;
 pub use self::service::locator::EventGraph;
 use self::sys::{PollWrite, SendAll};
@@ -128,19 +128,15 @@ fn flatten_err<T, E>(result: Result<Result<T, Error>, E>) -> Result<T, Error>
 }
 
 struct Call {
-    ty: u64,
-    data: Vec<u8>,
-    headers: Vec<RawHeader>,
-    complete: oneshot::Sender<Result<u64, Error>>,
+    request: Request,
     dispatch: Box<Dispatch>,
+    complete: oneshot::Sender<Result<u64, Error>>,
 }
 
 impl Debug for Call {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         fmt.debug_struct("Call")
-            .field("ty", &self.ty)
-            .field("len", &self.data.len())
-            .field("headers", &self.headers)
+            .field("request", &self.request)
             .finish()
     }
 }
@@ -152,16 +148,14 @@ impl Into<MultiplexEvent> for Call {
 }
 
 struct Mute {
-    ty: u64,
-    data: Vec<u8>,
+    request: Request,
     complete: oneshot::Sender<Result<u64, Error>>,
 }
 
 impl Debug for Mute {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         fmt.debug_struct("Mute")
-            .field("ty", &self.ty)
-            .field("len", &self.data.len())
+            .field("request", &self.request)
             .finish()
     }
 }
@@ -174,8 +168,7 @@ impl Into<MultiplexEvent> for Mute {
 
 struct Push {
     id: u64,
-    ty: u64,
-    data: Vec<u8>,
+    request: Request,
     complete: oneshot::Sender<Result<(), Error>>,
 }
 
@@ -183,8 +176,7 @@ impl Debug for Push {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         fmt.debug_struct("Push")
             .field("id", &self.id)
-            .field("ty", &self.ty)
-            .field("len", &self.data.len())
+            .field("request", &self.request)
             .finish()
     }
 }
@@ -195,9 +187,6 @@ impl Into<MultiplexEvent> for Push {
     }
 }
 
-// TODO: There are common fields: ty and data.
-// TODO: Rename `data` to `args`?
-// TODO: Add `tx` to the `Push`. Future<Result<(), Error>>.
 #[derive(Debug)]
 enum MultiplexEvent {
     Call(Call),
@@ -211,12 +200,13 @@ struct MessageBuf {
 }
 
 impl MessageBuf {
-    fn new(id: u64, ty: u64, mut data: Vec<u8>, headers: Vec<RawHeader>) -> Result<Self, io::Error> {
+    fn new(id: u64, request: Request) -> Result<Self, io::Error> {
         let mut head = [0; 32];
-        let head_len = MessageBuf::encode_head(&mut head[..], id, ty)?;
+        let head_len = MessageBuf::encode_head(&mut head[..], id, request.ty())?;
         let mut head = Window::new(head);
         head.set_end(head_len);
 
+        let (mut data, headers) = request.into_components();
         MessageBuf::encode_headers(&mut data, headers)?;
 
         let mbuf = MessageBuf {
@@ -421,29 +411,29 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
 
     fn add_event(&mut self, event: MultiplexEvent) {
         match event {
-            MultiplexEvent::Call(Call { ty, data, headers, dispatch, complete }) => {
-                self.invoke(ty, data, headers, complete);
+            MultiplexEvent::Call(Call { request, dispatch, complete }) => {
+                self.invoke(request, complete);
                 self.dispatches.insert(self.id, dispatch);
             }
-            MultiplexEvent::Mute(Mute { ty, data, complete }) => {
-                self.invoke(ty, data, Vec::new(), complete);
+            MultiplexEvent::Mute(Mute { request, complete }) => {
+                self.invoke(request, complete);
             }
-            MultiplexEvent::Push(Push { id, ty, data, complete }) => {
-                self.push(id, ty, data, Vec::new(), || Notify::Push(complete))
+            MultiplexEvent::Push(Push { id, request, complete }) => {
+                self.push(id, request, || Notify::Push(complete))
             }
         }
     }
 
-    fn invoke(&mut self, ty: u64, data: Vec<u8>, headers: Vec<RawHeader>, complete: oneshot::Sender<Result<u64, Error>>) {
+    fn invoke(&mut self, request: Request, complete: oneshot::Sender<Result<u64, Error>>) {
         self.id += 1;
         let id = self.id;
-        self.push(id, ty, data, headers, || Notify::Call(id, complete));
+        self.push(id, request, || Notify::Call(id, complete));
     }
 
-    fn push<F>(&mut self, id: u64, ty: u64, data: Vec<u8>, headers: Vec<RawHeader>, f: F)
+    fn push<F>(&mut self, id: u64, request: Request, f: F)
         where F: FnOnce() -> Notify
     {
-        let mbuf = MessageBuf::new(id, ty, data, headers).expect("failed to pack frame header");
+        let mbuf = MessageBuf::new(id, request).expect("failed to pack frame header");
         let message = Message {
             mbuf: mbuf,
             notify: f(),
@@ -682,16 +672,12 @@ impl Sender {
     ///
     /// [App]: service/app/struct.App.html
     /// [Unicorn]: service/unicorn/struct.Unicorn.html
-    pub fn send<T>(&self, ty: u64, args: &T) -> impl Future<Item = (), Error = Error>
-        where T: Serialize
-    {
+    pub fn send(&self, request: Request) -> impl Future<Item = (), Error = Error> {
         let (tx, rx) = oneshot::channel();
-        let buf = rmps::to_vec(args).unwrap();
 
         let event = Push {
             id: self.id,
-            ty: ty,
-            data: buf,
+            request: request,
             complete: tx,
         };
         self.tx.unbounded_send(Event::Push(event)).unwrap();
@@ -861,23 +847,20 @@ impl Debug for Event {
                     .finish()
             }
             Event::Disconnect => fmt.debug_struct("Event::Disconnect").finish(),
-            Event::Call(Call { ty, ref data, .. }) => {
+            Event::Call(Call { ref request, .. }) => {
                 fmt.debug_struct("Event::Call")
-                    .field("ty", &ty)
-                    .field("len", &data.len())
+                    .field("request", &request)
                     .finish()
             }
-            Event::Mute(Mute { ty, ref data, .. }) => {
+            Event::Mute(Mute { ref request, .. }) => {
                 fmt.debug_struct("Event::Mute")
-                    .field("ty", &ty)
-                    .field("len", &data.len())
+                    .field("request", &request)
                     .finish()
             }
-            Event::Push(Push { id, ty, ref data, .. }) => {
+            Event::Push(Push { id, ref request, .. }) => {
                 fmt.debug_struct("Event::Push")
                     .field("id", &id)
-                    .field("ty", &ty)
-                    .field("len", &data.len())
+                    .field("request", &request)
                     .finish()
             }
         }
@@ -1295,18 +1278,13 @@ impl Service {
     /// For mute RPC use [`call_mute`][call_mute] instead.
     ///
     /// [call_mute]: #method.call_mute
-    pub fn call<T, D>(&self, ty: u64, args: &T, headers: Vec<RawHeader>, dispatch: D) -> impl Future<Item=Sender, Error=Error>
-        where T: Serialize,
-              D: Dispatch + 'static
+    pub fn call<D>(&self, request: Request, dispatch: D) -> impl Future<Item=Sender, Error=Error>
+    where
+        D: Dispatch + 'static
     {
-        let buf = rmps::to_vec(args)
-            .expect("failed to serialize arguments");
-
         let (tx, rx) = oneshot::channel();
         let event = Call {
-            ty: ty,
-            data: buf,
-            headers: headers,
+            request: request,
             dispatch: box dispatch,
             complete: tx,
         };
@@ -1325,20 +1303,10 @@ impl Service {
     ///
     /// Calling a service event, that actually does respond, leads to silent dropping all received
     /// response chunks.
-    pub fn call_mute<T>(&self, ty: u64, args: &T) -> impl Future<Item=Sender, Error=Error>
-        where T: Serialize
-    {
-        let buf = rmps::to_vec(args)
-            .expect("failed to serialize arguments");
-        self.call_mute_raw(ty, buf)
-    }
-
-    #[inline]
-    fn call_mute_raw(&self, ty: u64, buf: Vec<u8>) -> impl Future<Item=Sender, Error=Error> {
+    pub fn call_mute(&self, request: Request) -> impl Future<Item=Sender, Error=Error> {
         let (tx, rx) = oneshot::channel();
         let event = Mute {
-            ty: ty,
-            data: buf,
+            request: request,
             complete: tx,
         };
         self.tx.unbounded_send(Event::Mute(event)).unwrap();

@@ -1,7 +1,6 @@
 extern crate cocaine;
 extern crate futures;
 extern crate tokio_core;
-extern crate rmpv;
 
 use futures::{Future, Stream, future};
 use tokio_core::reactor::Core;

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use futures::Future;
 
-use {Error, Service};
+use {Error, Request, Service};
 use dispatch::PrimitiveDispatch;
 
 /// A grant type.
@@ -64,7 +64,7 @@ impl Tvm {
 
         match *grant {
             Grant::ClientCredentials => {
-                self.service.call(method, &(id, secret, ty, args), Vec::new(), dispatch);
+                self.service.call(Request::new(method, &(id, secret, ty, args)).unwrap(), dispatch);
             }
         }
 

@@ -18,7 +18,7 @@ use slog::{DrainExt, Logger};
 
 use rmpv::ValueRef;
 
-use cocaine::{Dispatch, Error, Service};
+use cocaine::{Dispatch, Error, Request, Service};
 use cocaine::protocol::{self, Flatten, Primitive};
 
 struct ReadDispatch {
@@ -54,7 +54,7 @@ fn main() {
     let service = Service::new("storage", &handle);
 
     let (tx, rx) = oneshot::channel();
-    let future = service.call(0, &vec!["collection", "key"], vec![], ReadDispatch { tx: tx })
+    let future = service.call(Request::new(0, &["collection", "key"]).unwrap(), ReadDispatch { tx: tx })
         .then(|_sender| Ok(()));
 
     drop(service); // Just for fun to check that all pending request are proceeded until complete.
