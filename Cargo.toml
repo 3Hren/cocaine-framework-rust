@@ -1,10 +1,15 @@
 [package]
 name = "cocaine"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["Evgeny Safronov <division494@gmail.com>"]
 description = "Cocaine Framework Rust"
+documentation = "https://docs.rs/cocaine"
+repository = "https://github.com/3Hren/cocaine-framework-rust"
+readme = "README.md"
 keywords = ["Cocaine"]
+categories = ["api-bindings"]
 license = "MIT"
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 byteorder = "1"

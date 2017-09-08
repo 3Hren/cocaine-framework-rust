@@ -1,3 +1,5 @@
+//! Request build and management.
+
 use std::fmt::{self, Debug, Formatter};
 
 use serde::Serialize;
