@@ -25,7 +25,6 @@ impl ResolveInfo {
     }
 }
 
-// TODO: Adapt documentation.
 /// Cloud name resolution for services.
 ///
 /// Used before service connection establishing to determine where to connect, i.e where a service
@@ -36,6 +35,7 @@ impl ResolveInfo {
 /// [locator]: service/locator/struct.Locator.html
 /// [resolver]: struct.Resolver.html
 pub trait Resolve {
+    /// Future type that is returned during resolving.
     type Future: Future<Item=ResolveInfo, Error=Error>;
 
     /// Resolves a service name into the network endpoints.

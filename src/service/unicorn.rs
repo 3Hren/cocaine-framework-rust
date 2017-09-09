@@ -1,3 +1,5 @@
+//! Unified configuration service API.
+
 use futures::{Future, Stream};
 use futures::sync::mpsc;
 
@@ -28,6 +30,8 @@ pub struct Close {
 }
 
 impl Close {
+    /// Closes this handle, notifying a service side that we're no longer interested in receiving
+    /// updates.
     pub fn close(self) {}
 }
 

@@ -7,11 +7,14 @@ use byteorder::{ByteOrder, LittleEndian};
 /// Raw HPACK header.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RawHeader {
+    /// Header name.
     pub name: Cow<'static, [u8]>,
+    /// Header value.
     pub data: Cow<'static, [u8]>,
 }
 
 impl RawHeader {
+    /// Constructs a raw HPACK header using the specified name and value.
     pub fn new<N, V>(name: N, data: V) -> Self
         where N: Into<Cow<'static, [u8]>>,
               V: Into<Cow<'static, [u8]>>,
@@ -25,9 +28,12 @@ impl RawHeader {
 
 /// A well-known predefined header.
 pub trait Header {
+    /// Returns a header name.
     fn name() -> &'static [u8];
+    /// Returns a header value.
     fn data(&self) -> Cow<'static, [u8]>;
 
+    /// Converts this header into a raw representation.
     fn into_raw(self) -> RawHeader where Self: Sized {
         RawHeader::new(Self::name(), self.data())
     }

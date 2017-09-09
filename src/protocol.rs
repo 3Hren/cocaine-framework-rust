@@ -16,6 +16,7 @@ pub struct Error {
 }
 
 impl Error {
+    /// Constructs a new Cocaine error.
     pub fn new(category: i64, code: i64, description: Option<String>) -> Self {
         Self {
             error: (category, code),
@@ -85,8 +86,15 @@ pub type Primitive<T> = Result<T, Error>;
 ///
 #[derive(Debug, Deserialize)]
 pub enum Streaming<T> {
+    /// Describes a typed chunk of data.
     Write(T),
+    /// Describes an error that was occurred on a stream.
+    ///
+    /// This is the terminating message. meaning that there will be no other messages after this.
     Error(Error),
+    /// Describes an explicit stream close.
+    ///
+    /// This is the terminating message. meaning that there will be no other messages after this.
     Close,
 }
 

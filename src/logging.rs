@@ -69,9 +69,14 @@ impl Drop for Inner {
 /// Allowed severity levels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Severity {
+    /// Debug messages can describe any debug-specific helpful information.
     Debug,
+    /// Info messages usually describes how a program state changes.
     Info,
+    /// Warning messages describes non-critical, but still important information.
     Warn,
+    /// Error messages describes important critical information, for example a reason why a request
+    /// has failed.
     Error,
 }
 
@@ -247,6 +252,11 @@ pub enum FilterResult {
     Neutral,
 }
 
+/// A logger interface.
+///
+/// Implementations can be used in [`cocaine_log!`][log!] macro.
+///
+/// [log!]: ../macro.cocaine_log.html
 pub trait Log {
     /// Returns a logger name, that is used as a *source* parameter.
     fn source(&self) -> &str;

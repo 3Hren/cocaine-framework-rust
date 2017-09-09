@@ -26,8 +26,10 @@ const LOCATOR_NAME: &str = "locator";
 
 /// Resolve configuration.
 pub trait ResolveBuilder {
+    /// Resolver type.
     type Item: Resolve;
 
+    /// Consumes this builder, yielding a new resolver.
     fn build(self, handle: &Handle) -> Self::Item;
 }
 
