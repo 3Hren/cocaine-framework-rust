@@ -9,48 +9,7 @@ use futures::sync::mpsc;
 use {Error, Request, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
 use protocol::Flatten;
-//use resolve::ResolveInfo as OuterResolveInfo;
-
-/// Describes a protocol graph node.
-#[derive(Clone, Debug, Deserialize)]
-pub struct GraphNode {
-    /// Event name.
-    pub event: String,
-    /// Optional downstream protocol description.
-    pub rx: Option<HashMap<u64, GraphNode>>,
-}
-
-/// Describes a protocol graph for an event.
-#[derive(Clone, Debug, Deserialize)]
-pub struct EventGraph {
-    /// Event name.
-    pub name: String,
-    /// Optional upstream protocol description.
-    pub tx: HashMap<u64, GraphNode>,
-    /// Optional downstream protocol description.
-    pub rx: HashMap<u64, GraphNode>,
-}
-
-/// Response that is returned from either a resolver or [`Locator::resolve`][resolve] method.
-///
-/// [resolve]: struct.Locator.html#method.resolve
-#[derive(Clone, Debug, Deserialize)]
-pub struct ResolveInfo<T> {
-    pub(crate) addrs: Vec<T>,
-    pub(crate) version: u64,
-    pub(crate) methods: HashMap<u64, EventGraph>,
-}
-
-impl<T> ResolveInfo<T> {
-    /// Returns a view of socket addresses for this resolve info.
-    pub fn addrs(&self) -> &[T] {
-        &self.addrs
-    }
-
-    pub(crate) fn into_components(self) -> (Vec<T>, u64, HashMap<u64, EventGraph>) {
-        (self.addrs, self.version, self.methods)
-    }
-}
+use resolve::ResolveInfo;
 
 /// Represents a consistent hash ring where routing groups live.
 pub type HashRing = Vec<(u64, String)>;

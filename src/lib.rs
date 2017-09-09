@@ -70,10 +70,9 @@ mod sys;
 use net::connect;
 use self::frame::Frame;
 use self::hpack::RawHeader;
-pub use self::resolve::{FixedResolver, Resolve, Resolver};
+pub use self::resolve::{EventGraph, FixedResolver, Resolve, ResolveInfo, Resolver};
 pub use self::request::Request;
 pub use self::service::ServiceBuilder;
-pub use self::service::locator::{EventGraph, ResolveInfo};
 use self::sys::{PollWrite, SendAll};
 
 const FRAME_LENGTH: u32 = 4;
@@ -995,9 +994,10 @@ impl<R: Resolve> Future for Supervisor<R> {
 
                 match future.poll() {
                     Ok(Ready(info)) => {
-                        let (addrs, version, methods) = info.into_components();
+                        info!("successfully resolved `{}` service", self.name);
 
-                        info!("successfully resolved `{}` service: {:?}, {}, {:?}", self.name, addrs, version, methods);
+                        let ResolveInfo { addrs, methods, .. } = info;
+
                         self.shared.lock().unwrap().methods = methods;
                         self.state = Some(State::Connecting(Box::new(connect(addrs, &self.handle))));
                         return self.poll();
