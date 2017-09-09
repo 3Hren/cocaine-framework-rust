@@ -4,26 +4,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use futures::{future, Future};
 
 use Error;
-use service::locator::{EventGraph, Locator};
-
-#[derive(Debug)]
-pub struct ResolveInfo {
-    addrs: Vec<SocketAddr>,
-    methods: Option<HashMap<u64, EventGraph>>,
-}
-
-impl ResolveInfo {
-    pub fn new(addrs: Vec<SocketAddr>, methods: Option<HashMap<u64, EventGraph>>) -> Self {
-        Self {
-            addrs: addrs,
-            methods: methods,
-        }
-    }
-
-    pub fn into_components(self) -> (Vec<SocketAddr>, Option<HashMap<u64, EventGraph>>) {
-        (self.addrs, self.methods)
-    }
-}
+use service::locator::{Locator, ResolveInfo};
 
 /// Cloud name resolution for services.
 ///
@@ -36,7 +17,7 @@ impl ResolveInfo {
 /// [resolver]: struct.Resolver.html
 pub trait Resolve {
     /// Future type that is returned during resolving.
-    type Future: Future<Item=ResolveInfo, Error=Error>;
+    type Future: Future<Item=ResolveInfo<SocketAddr>, Error=Error>;
 
     /// Resolves a service name into the network endpoints.
     fn resolve(&mut self, name: &str) -> Self::Future;
@@ -81,12 +62,13 @@ impl Default for FixedResolver {
 }
 
 impl Resolve for FixedResolver {
-    type Future = future::FutureResult<ResolveInfo, Error>;
+    type Future = future::FutureResult<ResolveInfo<SocketAddr>, Error>;
 
     fn resolve(&mut self, _name: &str) -> Self::Future {
         let result = ResolveInfo {
             addrs: self.addrs.clone(),
-            methods: None,
+            version: 1,
+            methods: HashMap::new(),
         };
 
         future::ok(result)
@@ -109,10 +91,10 @@ impl Resolver {
 }
 
 impl Resolve for Resolver {
-    type Future = Box<Future<Item=ResolveInfo, Error=Error>>;
+    type Future = Box<Future<Item=ResolveInfo<SocketAddr>, Error=Error>>;
 
     fn resolve(&mut self, name: &str) -> Self::Future {
-        Box::new(self.locator.resolve(name).map(|info| info.into()))
+        Box::new(self.locator.resolve(name))
     }
 }
 

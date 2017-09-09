@@ -73,7 +73,7 @@ use self::hpack::RawHeader;
 pub use self::resolve::{FixedResolver, Resolve, Resolver};
 pub use self::request::Request;
 pub use self::service::ServiceBuilder;
-pub use self::service::locator::EventGraph;
+pub use self::service::locator::{EventGraph, ResolveInfo};
 use self::sys::{PollWrite, SendAll};
 
 const FRAME_LENGTH: u32 = 4;
@@ -995,9 +995,9 @@ impl<R: Resolve> Future for Supervisor<R> {
 
                 match future.poll() {
                     Ok(Ready(info)) => {
-                        info!("successfully resolved `{}` service", self.name);
+                        let (addrs, version, methods) = info.into_components();
 
-                        let (addrs, methods) = info.into_components();
+                        info!("successfully resolved `{}` service: {:?}, {}, {:?}", self.name, addrs, version, methods);
                         self.shared.lock().unwrap().methods = methods;
                         self.state = Some(State::Connecting(Box::new(connect(addrs, &self.handle))));
                         return self.poll();
@@ -1173,7 +1173,7 @@ impl<R: Resolve> Future for Supervisor<R> {
 struct SharedState {
     peer_addr: Option<SocketAddr>,
     local_addr: Option<SocketAddr>,
-    methods: Option<HashMap<u64, EventGraph>>,
+    methods: HashMap<u64, EventGraph>,
 }
 
 /// A low-level entry point to the Cocaine Cloud.
@@ -1240,7 +1240,7 @@ impl Service {
     /// the connection status use [`peer_addr`][peer_addr] method instead.
     ///
     /// [peer_addr]: #method.peer_addr
-    pub fn methods(&self) -> Option<HashMap<u64, EventGraph>> {
+    pub fn methods(&self) -> HashMap<u64, EventGraph> {
         self.shared.lock().unwrap().methods.clone()
     }
 

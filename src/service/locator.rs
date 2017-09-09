@@ -9,7 +9,7 @@ use futures::sync::mpsc;
 use {Error, Request, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
 use protocol::Flatten;
-use resolve::ResolveInfo as OuterResolveInfo;
+//use resolve::ResolveInfo as OuterResolveInfo;
 
 /// Describes a protocol graph node.
 #[derive(Clone, Debug, Deserialize)]
@@ -31,31 +31,24 @@ pub struct EventGraph {
     pub rx: HashMap<u64, GraphNode>,
 }
 
-/// Resolve response.
-#[derive(Debug, Deserialize)]
+/// Response that is returned from either a resolver or [`Locator::resolve`][resolve] method.
+///
+/// [resolve]: struct.Locator.html#method.resolve
+#[derive(Clone, Debug, Deserialize)]
 pub struct ResolveInfo<T> {
-    addrs: Vec<T>,
-    version: u64,
-    methods: HashMap<u64, EventGraph>,
+    pub(crate) addrs: Vec<T>,
+    pub(crate) version: u64,
+    pub(crate) methods: HashMap<u64, EventGraph>,
 }
 
-#[derive(Clone, Debug)]
-pub struct Info {
-    addrs: Vec<SocketAddr>,
-    version: u64,
-    methods: HashMap<u64, EventGraph>,
-}
-
-impl Info {
+impl<T> ResolveInfo<T> {
     /// Returns a view of socket addresses for this resolve info.
-    pub fn addrs(&self) -> &[SocketAddr] {
+    pub fn addrs(&self) -> &[T] {
         &self.addrs
     }
-}
 
-impl Into<OuterResolveInfo> for Info {
-    fn into(self) -> OuterResolveInfo {
-        OuterResolveInfo::new(self.addrs, Some(self.methods))
+    pub(crate) fn into_components(self) -> (Vec<T>, u64, HashMap<u64, EventGraph>) {
+        (self.addrs, self.version, self.methods)
     }
 }
 
@@ -104,7 +97,7 @@ impl Locator {
     ///
     /// let info = core.run(future).unwrap();
     /// ```
-    pub fn resolve(&self, name: &str) -> impl Future<Item = Info, Error = Error> {
+    pub fn resolve(&self, name: &str) -> impl Future<Item = ResolveInfo<SocketAddr>, Error = Error> {
         let (dispatch, future) = PrimitiveDispatch::pair();
         self.service.call(Request::new(Method::Resolve.into(), &[name]).unwrap(), dispatch);
 
@@ -113,7 +106,7 @@ impl Locator {
                 .map(|(ip, port)| SocketAddr::new(ip, port))
                 .collect();
 
-            Info {
+            ResolveInfo {
                 addrs: addrs,
                 version: version,
                 methods: methods,
