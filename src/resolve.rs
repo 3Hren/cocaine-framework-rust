@@ -45,7 +45,7 @@ pub struct EventGraph {
 
 /// Response that is returned from either a resolver or [`Locator::resolve`][resolve] method.
 ///
-/// [resolve]: struct.Locator.html#method.resolve
+/// [resolve]: service/locator/struct.Locator.html#method.resolve
 #[derive(Clone, Debug, Deserialize)]
 pub struct ResolveInfo<T> {
     pub(crate) addrs: Vec<T>,
