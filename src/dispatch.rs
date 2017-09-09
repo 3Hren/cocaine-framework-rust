@@ -54,13 +54,6 @@ impl<T: for<'de> Deserialize<'de> + Send> Dispatch for PrimitiveDispatch<T> {
     }
 }
 
-#[derive(Debug)]
-pub enum Streaming<T> {
-    Write(T),
-    Error(Error),
-    Close,
-}
-
 /// A streaming dispatch wraps the given stream and implements `Streaming` protocol, emitting
 /// either chunk, error or close events as usual stream events.
 #[derive(Debug)]
