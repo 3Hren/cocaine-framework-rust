@@ -1,7 +1,7 @@
 //! Locator service API.
 
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 
 use futures::{Future, Stream};
 use futures::sync::mpsc;
@@ -33,13 +33,12 @@ pub struct EventGraph {
 
 /// Resolve response.
 #[derive(Debug, Deserialize)]
-pub struct ResolveInfo {
-    addrs: Vec<(IpAddr, u16)>,
+pub struct ResolveInfo<T> {
+    addrs: Vec<T>,
     version: u64,
     methods: HashMap<u64, EventGraph>,
 }
 
-///
 #[derive(Clone, Debug)]
 pub struct Info {
     addrs: Vec<SocketAddr>,
