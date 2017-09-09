@@ -112,7 +112,7 @@ impl Resolve for Resolver {
     type Future = Box<Future<Item=ResolveInfo, Error=Error>>;
 
     fn resolve(&mut self, name: &str) -> Self::Future {
-        box self.locator.resolve(name).map(|info| info.into())
+        Box::new(self.locator.resolve(name).map(|info| info.into()))
     }
 }
 

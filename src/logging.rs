@@ -37,7 +37,7 @@ impl Inner {
             let service = Service::new(name, &handle);
 
             let future = rx.and_then(|event| {
-                box match event {
+                let future = match event {
                     Event::Write(buf) => {
                         // TODO: For unknown reasons this one hangs until external reconnection
                         // after sending some messages.
@@ -49,7 +49,9 @@ impl Inner {
                         future::ok(())
                     }
                     Event::Close => future::err(())
-                }
+                };
+
+                Box::new(future)
             });
 
             drop(core.run(future.fold(0, |acc, _v| future::ok(acc))));

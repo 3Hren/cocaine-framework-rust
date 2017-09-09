@@ -145,14 +145,15 @@ impl Unicorn {
             .add_headers(headers);
         self.service.call(request, dispatch).and_then(|sender| {
             let handle = Close { sender: sender };
-            let stream = box rx.map_err(|()| Error::Canceled)
+            let stream = rx.map_err(|()| Error::Canceled)
                 .then(Flatten::flatten)
                 .and_then(|(val, version): (Value, Version)| {
                     match rmpv::ext::deserialize_from(val) {
                         Ok(val) => Ok((val, version)),
                         Err(err) => Err(Error::InvalidDataFraming(err.to_string())),
                     }
-                }) as Box<Stream<Item=(Option<T>, Version), Error=Error> + Send>;
+                });
+            let stream = Box::new(stream) as Box<Stream<Item=(Option<T>, Version), Error=Error> + Send>;
 
             Ok((handle, stream))
         })
@@ -170,8 +171,9 @@ impl Unicorn {
         let dispatch = StreamingDispatch::new(tx);
         self.service.call(Request::new(Method::ChildrenSubscribe.into(), &[path]).unwrap(), dispatch).and_then(|sender| {
             let handle = Close { sender: sender };
-            let stream = box rx.map_err(|()| Error::Canceled)
-                .then(Flatten::flatten) as Box<Stream<Item=(Version, Vec<String>), Error=Error> + Send>;
+            let stream = rx.map_err(|()| Error::Canceled)
+                .then(Flatten::flatten);
+            let stream = Box::new(stream) as Box<Stream<Item=(Version, Vec<String>), Error=Error> + Send>;
             Ok((handle, stream))
         })
     }

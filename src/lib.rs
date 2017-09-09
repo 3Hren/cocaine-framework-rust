@@ -10,7 +10,6 @@
 //! - [ ] HPACK encoder.
 //! - [ ] HPACK decoder.
 
-#![feature(box_syntax)]
 #![feature(conservative_impl_trait)]
 
 #![warn(missing_docs, missing_debug_implementations)]
@@ -1000,7 +999,7 @@ impl<R: Resolve> Future for Supervisor<R> {
 
                         let (addrs, methods) = info.into_components();
                         self.shared.lock().unwrap().methods = methods;
-                        self.state = Some(State::Connecting(box connect(addrs, &self.handle)));
+                        self.state = Some(State::Connecting(Box::new(connect(addrs, &self.handle))));
                         return self.poll();
                     }
                     Ok(NotReady) => {
@@ -1285,7 +1284,7 @@ impl Service {
         let (tx, rx) = oneshot::channel();
         let event = Call {
             request: request,
-            dispatch: box dispatch,
+            dispatch: Box::new(dispatch),
             complete: tx,
         };
         self.tx.unbounded_send(Event::Call(event)).unwrap();
