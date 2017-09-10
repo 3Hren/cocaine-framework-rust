@@ -2,7 +2,7 @@ use serde::Deserialize;
 use rmpv::{self, ValueRef};
 
 use Error;
-use protocol::deserialize;
+use protocol;
 
 /// Immutable header view.
 ///
@@ -57,7 +57,7 @@ impl<'a: 'b, 'b> Response<'a, 'b> {
     /// Deserializes the response into the specified type.
     #[inline]
     pub fn deserialize<T: Deserialize<'b>>(&self) -> Result<T, Error> {
-        deserialize(self.ty, self.args)
+        protocol::deserialize(self.ty, self.args)
     }
 
     /// Returns response headers.

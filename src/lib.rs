@@ -51,7 +51,6 @@ pub use tokio_core::reactor::Core;
 use tokio_core::reactor::Handle;
 use tokio_io::io::Window;
 
-use rmpv::ValueRef;
 use rmpv::decode::read_value_ref;
 
 use Async::*;
@@ -105,7 +104,7 @@ pub trait Dispatch: Send {
     /// dispatching.
     ///
     /// [deserialize]: protocol/fn.deserialize.html
-    fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>>;
+    fn process(self: Box<Self>, response: &Response) -> Option<Box<Dispatch>>;
 
     /// Discards the dispatch due to some error occurred during receiving the response.
     ///
@@ -550,7 +549,7 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
 
                                 match self.dispatches.remove(&id) {
                                     Some(dispatch) => {
-                                        match dispatch.process(ty, args) {
+                                        match dispatch.process(&response) {
                                             Some(dispatch) => {
                                                 self.dispatches.insert(id, dispatch);
                                             }

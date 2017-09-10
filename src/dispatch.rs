@@ -7,9 +7,7 @@ use futures::sync::oneshot;
 
 use serde::Deserialize;
 
-use rmpv::ValueRef;
-
-use {Dispatch, Error};
+use {Dispatch, Error, Response};
 use protocol::{self, Flatten, Primitive};
 
 /// A single-shot dispatch wraps the given oneshot sender and implements `Primitive` protocol
@@ -41,8 +39,8 @@ impl<T> PrimitiveDispatch<T> {
 }
 
 impl<T: for<'de> Deserialize<'de> + Send> Dispatch for PrimitiveDispatch<T> {
-    fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-        let result = protocol::deserialize::<Primitive<T>>(ty, response)
+    fn process(self: Box<Self>, response: &Response) -> Option<Box<Dispatch>> {
+        let result = response.deserialize::<Primitive<T>>()
             .flatten();
         drop(self.tx.send(result));
 
@@ -79,8 +77,8 @@ impl<T> StreamingDispatch<T> {
 }
 
 impl<T: for<'de> Deserialize<'de> + Send + 'static> Dispatch for StreamingDispatch<T> {
-    fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-        match protocol::deserialize::<protocol::Streaming<T>>(ty, response).flatten() {
+    fn process(self: Box<Self>, response: &Response) -> Option<Box<Dispatch>> {
+        match response.deserialize::<protocol::Streaming<T>>().flatten() {
             Ok(Some(data)) => self.send(Ok(data)),
             Ok(None) => None,
             Err(err) => self.send(Err(err)),

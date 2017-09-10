@@ -1,8 +1,5 @@
-#![feature(associated_type_defaults)]
-
 extern crate cocaine;
 extern crate futures;
-extern crate rmpv;
 #[macro_use]
 extern crate slog;
 extern crate slog_envlogger;
@@ -16,18 +13,16 @@ use tokio_core::reactor::Core;
 
 use slog::{DrainExt, Logger};
 
-use rmpv::ValueRef;
-
-use cocaine::{Dispatch, Error, Request, Service};
-use cocaine::protocol::{self, Flatten, Primitive};
+use cocaine::{Dispatch, Error, Response, Request, Service};
+use cocaine::protocol::{Flatten, Primitive};
 
 struct ReadDispatch {
     tx: oneshot::Sender<Result<String, Error>>,
 }
 
 impl Dispatch for ReadDispatch {
-    fn process(self: Box<Self>, ty: u64, response: &ValueRef) -> Option<Box<Dispatch>> {
-        let result = protocol::deserialize::<Primitive<String>>(ty, response).flatten();
+    fn process(self: Box<Self>, response: &Response) -> Option<Box<Dispatch>> {
+        let result = response.deserialize::<Primitive<String>>().flatten();
 
         drop(self.tx.send(result));
         None

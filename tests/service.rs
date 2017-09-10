@@ -3,7 +3,6 @@ extern crate futures;
 extern crate libc;
 extern crate net2;
 extern crate rmp_serde as rmps;
-extern crate rmpv;
 extern crate tokio_core;
 
 use std::io::{ErrorKind, Write};
@@ -13,10 +12,9 @@ use std::thread;
 
 use futures::sync::oneshot;
 use net2::TcpStreamExt;
-use rmpv::ValueRef;
 use tokio_core::reactor::Core;
 
-use cocaine::{Dispatch, Error, FixedResolver, Request, ServiceBuilder};
+use cocaine::{Dispatch, Error, FixedResolver, Response, Request, ServiceBuilder};
 
 fn endpoint() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0)
@@ -127,7 +125,7 @@ fn dispatch_receives_rst() {
     }
 
     impl Dispatch for MockDispatch {
-        fn process(self: Box<Self>, _ty: u64, _response: &ValueRef) -> Option<Box<Dispatch>> {
+        fn process(self: Box<Self>, _response: &Response) -> Option<Box<Dispatch>> {
             panic!("expected calling `discard`, called `process`");
         }
 
