@@ -10,7 +10,7 @@ use protocol;
 /// data it points on lays directly in the socket buffer, which makes deserialization so fast.
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct HeaderRef<'a> {
-    dynamic: bool,
+    cached: bool,
     name: &'a [u8],
     data: &'a [u8],
 }
