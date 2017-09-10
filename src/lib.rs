@@ -63,6 +63,7 @@ pub mod logging;
 mod net;
 pub mod protocol;
 mod resolve;
+mod response;
 mod request;
 pub mod service;
 mod sys;
@@ -70,6 +71,7 @@ mod sys;
 use net::connect;
 use self::frame::Frame;
 use self::hpack::RawHeader;
+pub use self::response::Response;
 pub use self::resolve::{EventGraph, FixedResolver, GraphNode, Resolve, ResolveInfo, Resolver};
 pub use self::request::Request;
 pub use self::service::ServiceBuilder;
@@ -318,6 +320,8 @@ enum MultiplexError {
     InvalidProtocol(io::Error),
     /// Framing error.
     InvalidFraming(frame::Error),
+    /// Failed to unpack data frame into the expected type.
+    InvalidDataFraming(String),
 }
 
 impl MultiplexError {
@@ -331,6 +335,9 @@ impl MultiplexError {
             }
             MultiplexError::InvalidFraming(ref err) => {
                 MultiplexError::InvalidFraming(*err)
+            }
+            MultiplexError::InvalidDataFraming(ref err) => {
+                MultiplexError::InvalidDataFraming(err.clone())
             }
         }
     }
@@ -538,6 +545,9 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
                                 let ty = frame.ty();
                                 let args = frame.args();
 
+                                let response = Response::new(ty, args, frame.meta())
+                                    .map_err(|err| MultiplexError::InvalidDataFraming(format!("{}", err)))?;
+
                                 match self.dispatches.remove(&id) {
                                     Some(dispatch) => {
                                         match dispatch.process(ty, args) {
@@ -744,6 +754,7 @@ impl From<MultiplexError> for Error {
             MultiplexError::Io(err) => Error::Io(err),
             MultiplexError::InvalidProtocol(err) => Error::InvalidProtocol(err),
             MultiplexError::InvalidFraming(err) => Error::InvalidFraming(err),
+            MultiplexError::InvalidDataFraming(err) => Error::InvalidDataFraming(err),
         }
     }
 }

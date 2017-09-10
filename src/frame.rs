@@ -110,6 +110,10 @@ impl<'a, 'b> Frame<'a, 'b> {
     pub fn args(&self) -> &ValueRef {
         self.args
     }
+
+    pub fn meta(&self) -> &ValueRef {
+        self.meta
+    }
 }
 
 #[cfg(test)]
