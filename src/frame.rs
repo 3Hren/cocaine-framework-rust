@@ -55,7 +55,7 @@ pub struct Frame<'a: 'b, 'b> {
 
 impl<'a, 'b> Display for Frame<'a, 'b> {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "[{}, {}, {}, [{}]]", self.id, self.ty, self.args, self.meta)
+        write!(fmt, "[{}, {}, {}, {}]", self.id, self.ty, self.args, self.meta)
     }
 }
 
