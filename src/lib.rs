@@ -12,7 +12,7 @@
 
 #![feature(conservative_impl_trait)]
 
-#![warn(missing_docs, missing_debug_implementations)]
+#![warn(missing_debug_implementations, missing_docs)]
 
 #[macro_use]
 extern crate bitflags;
