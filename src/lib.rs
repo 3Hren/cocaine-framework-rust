@@ -70,7 +70,7 @@ mod sys;
 use net::connect;
 use self::frame::Frame;
 use self::hpack::RawHeader;
-pub use self::resolve::{EventGraph, FixedResolver, Resolve, ResolveInfo, Resolver};
+pub use self::resolve::{EventGraph, FixedResolver, GraphNode, Resolve, ResolveInfo, Resolver};
 pub use self::request::Request;
 pub use self::service::ServiceBuilder;
 use self::sys::{PollWrite, SendAll};
@@ -998,7 +998,7 @@ impl<R: Resolve> Future for Supervisor<R> {
 
                         let ResolveInfo { addrs, methods, .. } = info;
 
-                        self.shared.lock().unwrap().methods = methods;
+                        self.shared.lock().unwrap().methods = Some(methods);
                         self.state = Some(State::Connecting(Box::new(connect(addrs, &self.handle))));
                         return self.poll();
                     }
@@ -1173,7 +1173,7 @@ impl<R: Resolve> Future for Supervisor<R> {
 struct SharedState {
     peer_addr: Option<SocketAddr>,
     local_addr: Option<SocketAddr>,
-    methods: HashMap<u64, EventGraph>,
+    methods: Option<HashMap<u64, EventGraph>>,
 }
 
 /// A low-level entry point to the Cocaine Cloud.
@@ -1240,7 +1240,7 @@ impl Service {
     /// the connection status use [`peer_addr`][peer_addr] method instead.
     ///
     /// [peer_addr]: #method.peer_addr
-    pub fn methods(&self) -> HashMap<u64, EventGraph> {
+    pub fn methods(&self) -> Option<HashMap<u64, EventGraph>> {
         self.shared.lock().unwrap().methods.clone()
     }
 
