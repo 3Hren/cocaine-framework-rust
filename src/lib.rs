@@ -9,6 +9,19 @@
 //! - [ ] Receiving headers.
 //! - [ ] HPACK encoder.
 //! - [ ] HPACK decoder.
+//!
+//! This framework provides a client-side API for the Cocaine Cloud platform.
+//!
+//! # Examples
+//!
+//! The following example demonstrates how to save a BLOB using Storage service.
+//!
+//! ```no_run
+//! ```
+//!
+//! # Requirements
+//!
+//! - Rust nightly, because it widely uses currently unstable `impl Trait` feature.
 
 #![feature(conservative_impl_trait)]
 
