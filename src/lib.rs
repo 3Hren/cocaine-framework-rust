@@ -6,22 +6,87 @@
 //! - [ ] Infinite buffer growing protection.
 //! - [x] Implement `local_addr` and `peer_addr` for `Service`.
 //! - [ ] Generic multiplexer over the socket type, allowing to work with both TCP and Unix sockets.
-//! - [ ] Receiving headers.
+//! - [x] Receiving headers.
 //! - [ ] HPACK encoder.
 //! - [ ] HPACK decoder.
 //!
 //! This framework provides a client-side API for the Cocaine Cloud platform.
+//!
+//! There is a concept of services that represent universal cloud resource, which can be accessed
+//! using frameworks. These are: [`Locator`][locator], [`Storage`][storage], [`Unicorn`][unicorn],
+//! [`App`][app] and much more.
 //!
 //! # Examples
 //!
 //! The following example demonstrates how to save a BLOB using Storage service.
 //!
 //! ```no_run
+//! use cocaine::{Core, Service};
+//! use cocaine::service::Storage;
+//!
+//! let mut core = Core::new().unwrap();
+//! let storage = Storage::new(Service::new("storage", &core.handle()));
+//!
+//! let future = storage.write("collection", "key", "le message".as_bytes(), &[]);
+//!
+//! core.run(future).unwrap();
+//! ```
+//!
+//! The framework is fully asynchronous, widely using `tokio` and `futures` for communicating with
+//! remote services. An example above represents a high-level API, but also does the data copy,
+//! which is unnecessary in some cases. However this can be completely avoided by using
+//! [`Dispatch`][dispatch] trait in conjunction with [`Service`][service] object, because dispatch
+//! objects are called directly from the socket thread, where the data lays in completely zero-copy
+//! manner.
+//!
+//! ```no_run
+//! extern crate cocaine;
+//! extern crate futures;
+//!
+//! use std::mem;
+//! use futures::sync::oneshot::{self, Sender};
+//! use cocaine::{Core, Dispatch, Error, Response, Request, Service};
+//! use cocaine::protocol::{Flatten, Primitive};
+//!
+//! struct ReadDispatch {
+//!     completion: Sender<()>,
+//! }
+//!
+//! impl Dispatch for ReadDispatch {
+//!     fn process(self: Box<Self>, response: &Response) -> Option<Box<Dispatch>> {
+//!         let data = response.deserialize::<Primitive<&str>>().flatten();
+//!
+//!         println!("Data: {:?}", data);
+//!
+//!         mem::drop(self.completion);
+//!         None
+//!     }
+//!     fn discard(self: Box<Self>, err: &Error) {
+//!         println!("Error: {}", err);
+//!         mem::drop(self.completion);
+//!     }
+//! }
+//!
+//! fn main() {
+//!     let mut core = Core::new().unwrap();
+//!     let service = Service::new("storage", &core.handle());
+//!     let (tx, rx) = oneshot::channel();
+//!     service.call(Request::new(0, &("collection", "key")).unwrap(), ReadDispatch { completion: tx });
+//!
+//!     core.run(rx).unwrap();
+//! }
 //! ```
 //!
 //! # Requirements
 //!
 //! - Rust nightly, because it widely uses currently unstable `impl Trait` feature.
+//!
+//! [app]: service/app/struct.App.html
+//! [unicorn]: service/unicorn/struct.Unicorn.html
+//! [storage]: service/storage/struct.Storage.html
+//! [locator]: service/locator/struct.Locator.html
+//! [service]: struct.Service.html
+//! [dispatch]: trait.Dispatch.html
 
 #![feature(conservative_impl_trait)]
 
