@@ -77,6 +77,11 @@
 //! }
 //! ```
 //!
+//! # Modules
+//!
+//! There are both low-level API defined in the root module and more high-level API located in the
+//! `service` module.
+//!
 //! # Requirements
 //!
 //! - Rust nightly, because it widely uses currently unstable `impl Trait` feature.
