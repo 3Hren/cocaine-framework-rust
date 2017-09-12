@@ -24,7 +24,21 @@ impl Storage {
         self.service
     }
 
-    /// Reads the data containing at the specified collection and key.
+    /// Reads the data that is kept at the specified collection and key.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cocaine::{Core, Service};
+    /// use cocaine::service::Storage;
+    ///
+    /// let mut core = Core::new().unwrap();
+    /// let storage = Storage::new(Service::new("storage", &core.handle()));
+    ///
+    /// let future = storage.read("collection", "key");
+    ///
+    /// let data = core.run(future).unwrap();
+    /// ```
     pub fn read(&self, collection: &str, key: &str) -> impl Future<Item = Vec<u8>, Error = Error> {
         let (dispatch, future) = PrimitiveDispatch::pair();
         self.service.call(Request::new(0, &(collection, key)).unwrap(), dispatch)
