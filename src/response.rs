@@ -55,6 +55,37 @@ impl<'a: 'b, 'b> Response<'a, 'b> {
     }
 
     /// Deserializes the response into the specified type.
+    ///
+    /// Note, that this method can also be used to deserialize a response into some borrowed type,
+    /// like `&str`, `&[u8]` or into an user-defined type that contains them. In this case the
+    /// deserialization is completely zero-copy.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail if the underlying deserializer decides to fail.
+    ///
+    /// # Examples
+    ///
+    /// This example demonstrates how to use deserialization into a borrowed struct.
+    ///
+    /// ```
+    /// # #[macro_use] extern crate serde_derive;
+    /// # extern crate cocaine;
+    /// use cocaine::{Error, Response};
+    ///
+    /// #[derive(Debug, Deserialize)]
+    /// struct User<'a> {
+    ///     name: &'a str,
+    ///     age: u16,
+    /// }
+    ///
+    /// fn handle(resp: &Response) -> Result<(), Error> {
+    ///     let user: User = resp.deserialize()?;
+    ///     println!("User: {:?}", user);
+    ///     Ok(())
+    /// }
+    /// # fn main() {}
+    /// ```
     #[inline]
     pub fn deserialize<T: Deserialize<'b>>(&self) -> Result<T, Error> {
         protocol::deserialize(self.ty, self.args)
