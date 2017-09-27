@@ -1299,10 +1299,26 @@ impl Service {
     ///
     /// For more fine-grained service configuration use [`ServiceBuilder`][builder] instead.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cocaine::{Core, Service};
+    ///
+    /// let core = Core::new().unwrap();
+    /// let locator = Service::new("locator", &core.handle());
+    ///
+    /// let name = "app".to_string();
+    /// let service = Service::new(name, &core.handle());
+    ///
+    /// assert_eq!("app", service.name());
+    /// assert_eq!("locator", locator.name());
+    /// ```
+    ///
     /// [connect]: #method.connect
     /// [builder]: service/struct.ServiceBuilder.html
     pub fn new<N>(name: N, handle: &Handle) -> Self
-        where N: Into<Cow<'static, str>>
+    where
+        N: Into<Cow<'static, str>>
     {
         ServiceBuilder::new(name).build(handle)
     }
