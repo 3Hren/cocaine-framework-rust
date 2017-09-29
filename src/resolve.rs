@@ -76,9 +76,7 @@ impl FixedResolver {
     /// Constructs a fixed resolver, which will always resolve any service name into the specified
     /// endpoints.
     pub fn new(addrs: Vec<SocketAddr>) -> Self {
-        FixedResolver {
-            addrs: addrs,
-        }
+        Self { addrs }
     }
 
     /// Returns endpoints given at construction time.
@@ -121,9 +119,7 @@ pub struct Resolver {
 impl Resolver {
     /// Constructs a new `Resolver` using the specified `Locator` for name resolution.
     pub fn new(locator: Locator) -> Self {
-        Self {
-            locator: locator,
-        }
+        Self { locator }
     }
 }
 
