@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::sync::{Arc, RwLock};
 
 use futures::{Future, future};
 
@@ -21,7 +20,7 @@ pub trait Resolve {
     type Future: Future<Item = ResolveInfo<SocketAddr>, Error = Error>;
 
     /// Resolves a service name into the network endpoints.
-    fn resolve(&mut self, name: &str) -> Self::Future;
+    fn resolve(&self, name: &str) -> Self::Future;
 }
 
 /// Describes a protocol graph node.
@@ -102,7 +101,7 @@ impl Default for FixedResolver {
 impl Resolve for FixedResolver {
     type Future = future::FutureResult<ResolveInfo<SocketAddr>, Error>;
 
-    fn resolve(&mut self, _name: &str) -> Self::Future {
+    fn resolve(&self, _name: &str) -> Self::Future {
         let result = ResolveInfo {
             addrs: self.addrs.clone(),
             version: 1,
@@ -114,7 +113,23 @@ impl Resolve for FixedResolver {
 }
 
 /// A `Resolver` that uses the `Locator` for name resolution.
-#[derive(Debug)]
+///
+/// It is clonable, thread-safe and implements both `Send` and `Sync` traits, allowing to share
+/// across multiple threads.
+///
+/// # Examples
+///
+/// ```no_run
+/// use cocaine::{Core, Resolve, Resolver, Service};
+/// use cocaine::service::Locator;
+///
+/// let mut core = Core::new().unwrap();
+///
+/// let resolver = Resolver::new(Locator::new(Service::new("locator", &core.handle())));
+///
+/// core.run(resolver.resolve("storage")).unwrap();
+/// ```
+#[derive(Clone, Debug)]
 pub struct Resolver {
     locator: Locator,
 }
@@ -129,9 +144,19 @@ impl Resolver {
 impl Resolve for Resolver {
     type Future = Box<Future<Item = ResolveInfo<SocketAddr>, Error = Error>>;
 
-    fn resolve(&mut self, name: &str) -> Self::Future {
+    fn resolve(&self, name: &str) -> Self::Future {
         Box::new(self.locator.resolve(name))
     }
+}
+
+fn _assert_kinds() {
+    fn _assert_send<T: Send>() {}
+    fn _assert_sync<T: Sync>() {}
+    fn _assert_clone<T: Clone>() {}
+
+    _assert_send::<Resolver>();
+    _assert_sync::<Resolver>();
+    _assert_clone::<Resolver>();
 }
 
 #[cfg(test)]
