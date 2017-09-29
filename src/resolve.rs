@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::sync::{Arc, RwLock};
 
-use futures::{future, Future};
+use futures::{Future, future};
 
 use Error;
 use service::locator::Locator;
@@ -17,7 +18,7 @@ use service::locator::Locator;
 /// [resolver]: struct.Resolver.html
 pub trait Resolve {
     /// Future type that is returned during resolving.
-    type Future: Future<Item=ResolveInfo<SocketAddr>, Error=Error>;
+    type Future: Future<Item = ResolveInfo<SocketAddr>, Error = Error>;
 
     /// Resolves a service name into the network endpoints.
     fn resolve(&mut self, name: &str) -> Self::Future;
@@ -90,8 +91,10 @@ impl FixedResolver {
 /// The default endpoint for a fixed resolver is: `[::1]:10053`.
 impl Default for FixedResolver {
     fn default() -> Self {
-        FixedResolver {
-            addrs: vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053)],
+        Self {
+            addrs: vec![
+                SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053),
+            ],
         }
     }
 }
@@ -110,7 +113,7 @@ impl Resolve for FixedResolver {
     }
 }
 
-/// A `Resolver` that user the `Locator` for name resolution.
+/// A `Resolver` that uses the `Locator` for name resolution.
 #[derive(Debug)]
 pub struct Resolver {
     locator: Locator,
@@ -124,7 +127,7 @@ impl Resolver {
 }
 
 impl Resolve for Resolver {
-    type Future = Box<Future<Item=ResolveInfo<SocketAddr>, Error=Error>>;
+    type Future = Box<Future<Item = ResolveInfo<SocketAddr>, Error = Error>>;
 
     fn resolve(&mut self, name: &str) -> Self::Future {
         Box::new(self.locator.resolve(name))
@@ -151,7 +154,11 @@ mod test {
     fn fixed_resolver_default_addrs() {
         let resolver = FixedResolver::default();
 
-        assert_eq!(vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053)],
-            resolver.addrs());
+        assert_eq!(
+            vec![
+                SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 10053),
+            ],
+            resolver.addrs()
+        );
     }
 }
