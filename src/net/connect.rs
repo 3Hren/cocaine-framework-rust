@@ -41,7 +41,8 @@ impl<I: Iterator<Item = SocketAddr>> Future for TcpSteamMultiConnect<I> {
 
 /// Establishes a TCP socket connection by trying each endpoint in a sequence.
 pub fn connect<E>(endpoints: E, handle: &Handle) -> impl Future<Item = TcpStream, Error = Error>
-    where E: IntoIterator<Item = SocketAddr>
+where
+    E: IntoIterator<Item = SocketAddr>,
 {
     TcpSteamMultiConnect {
         handle: handle.clone(),
@@ -78,8 +79,7 @@ mod tests {
 
         let future = connect(vec![addr], &handle);
 
-        assert_eq!(addr.port(),
-                   core.run(future).unwrap().peer_addr().unwrap().port());
+        assert_eq!(addr.port(), core.run(future).unwrap().peer_addr().unwrap().port());
     }
 
     #[test]
@@ -89,14 +89,15 @@ mod tests {
 
         let listener = TcpListener::bind(("0.0.0.0", 0)).unwrap();
         let addr = listener.local_addr().unwrap();
-        let addrs = vec![SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 500)),
-                         SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 600)),
-                         SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 700)),
-                         addr];
+        let addrs = vec![
+            SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 500)),
+            SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 600)),
+            SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 700)),
+            addr,
+        ];
 
         let future = connect(addrs, &handle);
 
-        assert_eq!(addr.port(),
-                   core.run(future).unwrap().peer_addr().unwrap().port());
+        assert_eq!(addr.port(), core.run(future).unwrap().peer_addr().unwrap().port());
     }
 }

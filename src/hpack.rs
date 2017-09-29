@@ -16,8 +16,9 @@ pub struct RawHeader {
 impl RawHeader {
     /// Constructs a raw HPACK header using the specified name and value.
     pub fn new<N, V>(name: N, data: V) -> Self
-        where N: Into<Cow<'static, [u8]>>,
-              V: Into<Cow<'static, [u8]>>,
+    where
+        N: Into<Cow<'static, [u8]>>,
+        V: Into<Cow<'static, [u8]>>,
     {
         Self {
             name: name.into(),
@@ -34,7 +35,10 @@ pub trait Header {
     fn data(&self) -> Cow<'static, [u8]>;
 
     /// Converts this header into a raw representation.
-    fn into_raw(self) -> RawHeader where Self: Sized {
+    fn into_raw(self) -> RawHeader
+    where
+        Self: Sized,
+    {
         RawHeader::new(Self::name(), self.data())
     }
 }

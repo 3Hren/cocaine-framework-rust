@@ -29,9 +29,7 @@ mod unix {
             msg_flags: 0,
         };
 
-        let rc = unsafe {
-            libc::sendmsg(fd, &msghdr, 0)
-        };
+        let rc = unsafe { libc::sendmsg(fd, &msghdr, 0) };
 
         if rc < 0 {
             Err(Error::last_os_error())

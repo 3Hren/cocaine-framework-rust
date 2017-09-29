@@ -135,7 +135,8 @@ impl ServiceBuilder<ResolverBuilder> {
     ///
     /// [resolver]: #method.resolver
     pub fn locator_addrs<E>(mut self, addrs: E) -> Self
-        where E: IntoIterator<Item = SocketAddr>
+    where
+        E: IntoIterator<Item = SocketAddr>,
     {
         self.resolve_builder.resolver = FixedResolver::new(addrs.into_iter().collect());
         self
@@ -213,6 +214,8 @@ impl<T: ResolveBuilder + 'static> ServiceBuilder<T> {
 
 impl<T> Debug for ServiceBuilder<T> {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
-        fmt.debug_struct("ServiceBuilder").field("name", &self.name).finish()
+        fmt.debug_struct("ServiceBuilder")
+            .field("name", &self.name)
+            .finish()
     }
 }

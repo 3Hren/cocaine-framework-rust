@@ -71,7 +71,7 @@ impl Request {
     }
 
     /// Adds an iterable headers object to the request.
-    pub fn add_headers<H: IntoIterator<Item=RawHeader>>(mut self, headers: H) -> Self {
+    pub fn add_headers<H: IntoIterator<Item = RawHeader>>(mut self, headers: H) -> Self {
         self.headers.extend(headers);
         self
     }

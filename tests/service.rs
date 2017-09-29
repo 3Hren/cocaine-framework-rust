@@ -14,7 +14,7 @@ use futures::sync::oneshot;
 use net2::TcpStreamExt;
 use tokio_core::reactor::Core;
 
-use cocaine::{Dispatch, Error, FixedResolver, Response, Request, ServiceBuilder};
+use cocaine::{Dispatch, Error, FixedResolver, Request, Response, ServiceBuilder};
 
 fn endpoint() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0)
@@ -132,8 +132,10 @@ fn dispatch_receives_rst() {
         fn discard(self: Box<Self>, err: &Error) {
             match err {
                 &Error::Io(ref err) => {
-                    assert!(ErrorKind::ConnectionReset == err.kind() ||
-                            ErrorKind::UnexpectedEof == err.kind());
+                    assert!(
+                        ErrorKind::ConnectionReset == err.kind() ||
+                            ErrorKind::UnexpectedEof == err.kind()
+                    );
                     drop(self.tx.send(()));
                 }
                 err => panic!("expected I/O error, actual {:?}", err),
