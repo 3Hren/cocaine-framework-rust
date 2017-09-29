@@ -749,7 +749,7 @@ pub struct Sender {
 
 impl Sender {
     fn new(id: u64, tx: UnboundedSender<Event>) -> Self {
-        Sender { id: id, tx: tx }
+        Self { id, tx }
     }
 
     /// Sends a new data chunk into the channel associated with this upstream.
