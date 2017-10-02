@@ -114,7 +114,7 @@ impl Resolve for FixedResolver {
 
 /// A `Resolver` that uses the `Locator` for name resolution.
 ///
-/// It is clonable, thread-safe and implements both `Send` and `Sync` traits, allowing to share
+/// It is cloneable, thread-safe and implements both `Send` and `Sync` traits, allowing to share
 /// across multiple threads.
 ///
 /// # Examples
