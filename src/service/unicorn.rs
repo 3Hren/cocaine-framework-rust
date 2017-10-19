@@ -103,14 +103,19 @@ impl Unicorn {
     ///
     /// let (value, version): (Option<String>, i64) = core.run(future).unwrap();
     /// ```
-    pub fn get<T>(&self, path: &str) ->
+    pub fn get<T, H>(&self, path: &str, headers: H) ->
         impl Future<Item=(Option<T>, Version), Error=Error>
     where
-        T: for<'de> Deserialize<'de>
+        T: for<'de> Deserialize<'de>,
+        H: Into<Option<Vec<RawHeader>>>
     {
         let (dispatch, future) = PrimitiveDispatch::pair();
-        self.service.call(Request::new(Method::Get.into(), &[path]).unwrap(), dispatch);
+        let headers = headers.into().unwrap_or_default();
+        let request = Request::new(Method::Get.into(), &[path])
+            .unwrap()
+            .add_headers(headers);
 
+        self.service.call(request, dispatch);
         future.and_then(|(val, version): (Value, Version)| {
             match rmpv::ext::deserialize_from(val) {
                 Ok(val) => Ok((val, version)),
@@ -164,12 +169,19 @@ impl Unicorn {
     /// This method returns a future, which can be split into a cancellation token and a stream,
     /// which will return the actual list of children on each child creation or deletion. Other
     /// operations, such as children mutation, are not the subject of this method.
-    pub fn children_subscribe(&self, path: &str) ->
+    pub fn children_subscribe<H>(&self, path: &str, headers: H) ->
         impl Future<Item=(Close, Box<Stream<Item=(Version, Vec<String>), Error=Error> + Send>), Error=Error>
+    where
+        H: Into<Option<Vec<RawHeader>>>
     {
         let (tx, rx) = mpsc::unbounded();
         let dispatch = StreamingDispatch::new(tx);
-        self.service.call(Request::new(Method::ChildrenSubscribe.into(), &[path]).unwrap(), dispatch).and_then(|sender| {
+        let headers = headers.into().unwrap_or_default();
+        let request = Request::new(Method::ChildrenSubscribe.into(), &[path])
+            .unwrap()
+            .add_headers(headers);
+
+        self.service.call(request, dispatch).and_then(|sender| {
             let handle = Close { sender: sender };
             let stream = rx.map_err(|()| Error::Canceled)
                 .then(Flatten::flatten);
