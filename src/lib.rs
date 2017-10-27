@@ -538,7 +538,7 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
             bufs[idx * 2 + 1] = &message.mbuf.data.as_ref()[..];
         }
 
-        SendAll::send_all(&mut self.sock, &bufs[..size])
+        self.sock.send_all(&bufs[..size])
     }
 
     fn poll_send(&mut self) -> Poll<(), MultiplexError> {
