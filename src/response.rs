@@ -42,7 +42,7 @@ impl<'a: 'b, 'b> Response<'a, 'b> {
         let resp = Self {
             ty: ty,
             args: args,
-            meta: rmpv::ext::deserialize_from(meta)?,
+            meta: Vec::new(), //rmpv::ext::deserialize_from(meta)?,
         };
 
         Ok(resp)
