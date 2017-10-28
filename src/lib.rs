@@ -159,6 +159,7 @@ pub use self::service::ServiceBuilder;
 use self::sys::{PollWrite, SendAll};
 
 const FRAME_LENGTH: u32 = 4;
+const EMPTY_SLICE: &[u8] = &[0; 0];
 
 /// Receiver part of every multiplexed non-mute request performed with a service.
 ///
@@ -404,8 +405,6 @@ enum MultiplexError {
     /// Failed to unpack data frame into the expected type.
     InvalidDataFraming(String),
 }
-
-const EMPTY_SLICE: &[u8] = &[0; 0];
 
 impl MultiplexError {
     fn clone(&self) -> Self {
