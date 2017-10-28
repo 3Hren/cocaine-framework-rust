@@ -57,10 +57,15 @@ pub trait SendAll {
     fn send_all(&mut self, iov: &[&[u8]]) -> Result<usize, Error>;
 }
 
-#[cfg(unix)]
 impl SendAll for TcpStream {
+    #[cfg(unix)]
     fn send_all(&mut self, iov: &[&[u8]]) -> Result<usize, Error> {
         // TODO: Temporary fallback, replace with `unix::sendmsg(self.as_raw_fd(), iov)`.
+        send_all(self, iov)
+    }
+
+    #[cfg(not(unix))]
+    fn send_all(&mut self, iov: &[&[u8]]) -> Result<usize, Error> {
         send_all(self, iov)
     }
 }
@@ -79,11 +84,4 @@ fn send_all(stream: &mut TcpStream, iov: &[&[u8]]) -> Result<usize, Error> {
     }
 
     Ok(nsent)
-}
-
-#[cfg(windows)]
-impl SendAll for TcpStream {
-    fn send_all(&mut self, iov: &[&[u8]]) -> Result<usize, Error> {
-        send_all(self, iov)
-    }
 }
