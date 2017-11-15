@@ -19,13 +19,13 @@ fn main() {
     let mut core = Core::new().unwrap();
     let unicorn = Unicorn::new(Service::new("unicorn", &core.handle()));
 
-    let future = unicorn.children_subscribe("/darkvoice/resources".into()).and_then(|(tx, stream)| {
+    let future = unicorn.children_subscribe("/darkvoice/resources".into(), None).and_then(|(tx, stream)| {
         stream.take(1).for_each(|(version, nodes)| {
             println!("Version: {}, nodes: {:?}", version, nodes);
 
             let mut futures = Vec::with_capacity(5001);
             for node in nodes {
-                futures.push(unicorn.get::<Resource>(&format!("/darkvoice/resources/{}", node)));
+                futures.push(unicorn.get::<Resource,_>(&format!("/darkvoice/resources/{}", node), None));
             }
 
             futures::future::join_all(futures).and_then(|result| {
