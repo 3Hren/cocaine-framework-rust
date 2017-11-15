@@ -99,7 +99,7 @@ impl Unicorn {
     /// let mut core = Core::new().unwrap();
     /// let unicorn = Unicorn::new(Service::new("unicorn", &core.handle()));
     ///
-    /// let future = unicorn.get("/cocaine/config");
+    /// let future = unicorn.get("/cocaine/config", None);
     ///
     /// let (value, version): (Option<String>, i64) = core.run(future).unwrap();
     /// ```
