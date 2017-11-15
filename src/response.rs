@@ -38,11 +38,11 @@ pub struct Response<'a: 'b, 'b> {
 }
 
 impl<'a: 'b, 'b> Response<'a, 'b> {
-    pub(crate) fn new(ty: u64, args: &'b ValueRef<'a>, meta: &'b ValueRef<'a>) -> Result<Self, rmpv::ext::Error> {
+    pub(crate) fn new(ty: u64, args: &'b ValueRef<'a>, _meta: &'b ValueRef<'a>) -> Result<Self, rmpv::ext::Error> {
         let resp = Self {
             ty: ty,
             args: args,
-            meta: rmpv::ext::deserialize_from(meta)?,
+            meta: Vec::new(), //rmpv::ext::deserialize_from(meta)?,
         };
 
         Ok(resp)

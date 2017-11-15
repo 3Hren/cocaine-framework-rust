@@ -119,7 +119,6 @@ use std::collections::{HashMap, VecDeque};
 use std::error;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::io::{self, Cursor, ErrorKind, Read, Write};
-use std::mem;
 use std::net::SocketAddr;
 use std::ptr;
 use std::sync::{Arc, Mutex};
@@ -406,6 +405,8 @@ enum MultiplexError {
     InvalidDataFraming(String),
 }
 
+const EMPTY_SLICE: &[u8] = &[0; 0];
+
 impl MultiplexError {
     fn clone(&self) -> Self {
         match *self {
@@ -529,16 +530,15 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
     }
 
     fn send_all(&mut self) -> Result<usize, io::Error> {
-        let null = unsafe { mem::uninitialized() };
         let mut size = 0;
-        let mut bufs = [null; IOVEC_MAX];
+        let mut bufs = [EMPTY_SLICE; IOVEC_MAX];
         for (idx, message) in self.pending.iter().enumerate().take(IOVEC_MAX / 2) {
             size += 2;
             bufs[idx * 2] = &message.mbuf.head.as_ref()[..];
             bufs[idx * 2 + 1] = &message.mbuf.data.as_ref()[..];
         }
 
-        SendAll::send_all(&mut self.sock, &bufs[..size])
+        self.sock.send_all(&bufs[..size])
     }
 
     fn poll_send(&mut self) -> Poll<(), MultiplexError> {
