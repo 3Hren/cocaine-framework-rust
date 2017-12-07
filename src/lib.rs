@@ -352,26 +352,26 @@ impl MessageBuf {
     }
 }
 
-enum Notify {
-    Call(u64, oneshot::Sender<Result<u64, Error>>),
-    Push(oneshot::Sender<Result<(), Error>>),
+enum Notify<E> {
+    Call(u64, oneshot::Sender<Result<u64, E>>),
+    Push(oneshot::Sender<Result<(), E>>),
 }
 
-impl Notify {
+impl<E: From<io::Error>> Notify<E> {
     fn complete(self, val: Result<(), io::Error>) {
         match self {
-            Notify::Call(id, tx) => drop(tx.send(val.and(Ok(id)).map_err(Error::Io))),
-            Notify::Push(tx) => drop(tx.send(val.map_err(Error::Io))),
+            Notify::Call(id, tx) => drop(tx.send(val.and(Ok(id)).map_err(Into::into))),
+            Notify::Push(tx) => drop(tx.send(val.map_err(Into::into))),
         }
     }
 }
 
-struct Message {
+struct Message<E> {
     mbuf: MessageBuf,
-    notify: Notify,
+    notify: Notify<E>,
 }
 
-impl Message {
+impl<E: From<io::Error>> Message<E> {
     /// Unwritten length.
     fn remaining(&self) -> usize {
         self.mbuf.remaining()
@@ -460,7 +460,7 @@ struct Multiplex<T> {
     // Shutdown state.
     state: Shutdown,
 
-    pending: VecDeque<Message>,
+    pending: VecDeque<Message<Error>>,
     dispatches: HashMap<u64, Box<Dispatch>>,
 
     ring: Vec<u8>,
@@ -518,7 +518,7 @@ impl<T: Read + Write + SendAll + PollWrite> Multiplex<T> {
     }
 
     fn push<F>(&mut self, id: u64, request: Request, f: F)
-        where F: FnOnce() -> Notify
+        where F: FnOnce() -> Notify<Error>
     {
         let mbuf = MessageBuf::new(id, request).expect("failed to pack frame header");
         let message = Message {
