@@ -24,7 +24,7 @@ pub trait Resolve {
 }
 
 /// Describes a protocol graph node.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GraphNode {
     /// Event name.
     pub event: String,
@@ -33,7 +33,7 @@ pub struct GraphNode {
 }
 
 /// Describes a protocol graph for an event.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct EventGraph {
     /// Event name.
     pub name: String,
