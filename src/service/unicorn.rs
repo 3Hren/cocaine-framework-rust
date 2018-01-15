@@ -137,8 +137,8 @@ impl Unicorn {
     ///
     /// In addition to common errors this method also emits `Error::InvalidDataFraming` on failed
     /// attempt to deserialize the received value into the specified type.
-    pub fn subscribe<T, H>(&self, path: &str, headers: H) ->
-        impl Future<Item=(Close, Box<Stream<Item=(Option<T>, Version), Error=Error> + Send>), Error=Error>
+    pub fn subscribe<'a, T, H>(&self, path: &str, headers: H) ->
+        impl Future<Item=(Close, Box<Stream<Item=(Option<T>, Version), Error=Error> + Send + 'a>), Error=Error>
     where
         T: for<'de> Deserialize<'de> + Send + 'static,
         H: Into<Option<Vec<RawHeader>>>
