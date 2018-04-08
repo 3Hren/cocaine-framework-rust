@@ -5,7 +5,10 @@ use futures::sync::mpsc;
 
 use rmpv::{self, Value};
 
-use serde::Deserialize;
+use serde::{
+    Serialize,
+    Deserialize
+};
 
 use {Error, Request, Sender, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
@@ -44,7 +47,10 @@ impl Drop for Close {
 enum Method {
     Subscribe,
     ChildrenSubscribe,
+    Put,
     Get,
+    Create,
+    Del,
 }
 
 impl Into<u64> for Method {
@@ -53,7 +59,10 @@ impl Into<u64> for Method {
         match self {
             Method::Subscribe => 0,
             Method::ChildrenSubscribe => 1,
+            Method::Put => 2,
             Method::Get => 3,
+            Method::Create => 4,
+            Method::Del => 5,
         }
     }
 }
@@ -84,6 +93,117 @@ impl Unicorn {
     /// this will result in various framing errors.
     pub fn new(service: Service) -> Self {
         Self { service }
+    }
+
+    /// Creates record at specified path with provided value.
+    ///
+    /// This method returns a optional boolean value of operation result
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cocaine::{Core, Service};
+    /// use cocaine::service::Unicorn;
+    ///
+    /// let mut core = Core::new().unwrap();
+    /// let unicorn = Unicorn::new(Service::new("unicorn", &core.handle()));
+    ///
+    /// let future = unicorn.create("/cocaine/config", vec![1,2,3], None);
+    ///
+    /// let result: Option<bool, Version> = core.run(future).unwrap();
+    /// ```
+    pub fn create<T, H>(&self, path: &str, value: &T, headers: H) ->
+        impl Future<Item=Option<bool>, Error=Error>
+    where
+        T: for<'de> Deserialize<'de> + Serialize,
+        H: IntoIterator<Item=RawHeader>
+    {
+        let (dispatch, future) = PrimitiveDispatch::pair();
+        let request = Request::new(Method::Create.into(), &(path, value))
+            .unwrap()
+            .add_headers(headers);
+
+        self.service.call(request, dispatch);
+        future.and_then(|done: (Value)| {
+            match rmpv::ext::deserialize_from(done) {
+                Ok(val)  => Ok(val),
+                Err(err) => Err(Error::InvalidDataFraming(err.to_string())),
+            }
+        })
+    }
+
+    /// Writes record at specified path with provided version.
+    ///
+    /// This method returns a optional boolean value of operation result,
+    /// plus assigned version.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cocaine::{Core, Service};
+    /// use cocaine::service::Unicorn;
+    ///
+    /// let mut core = Core::new().unwrap();
+    /// let unicorn = Unicorn::new(Service::new("unicorn", &core.handle()));
+    ///
+    /// let future = unicorn.put("/cocaine/config", vec![1,2,3], None);
+    ///
+    /// let result: Option<bool, Version> = core.run(future).unwrap();
+    /// ```
+    pub fn put<T, H>(&self, path: &str, value: &T, headers: H) ->
+        impl Future<Item=Option<(bool, Version)>, Error=Error>
+    where
+        T: for<'de> Deserialize<'de> + Serialize,
+        H: IntoIterator<Item=RawHeader>
+    {
+        let (dispatch, future) = PrimitiveDispatch::pair();
+        let request = Request::new(Method::Put.into(), &(path, value))
+            .unwrap()
+            .add_headers(headers);
+
+        self.service.call(request, dispatch);
+        future.and_then(|(val, version): (Value, Version)| {
+            match rmpv::ext::deserialize_from(val) {
+                Ok(val) => Ok(Some((val, version))),
+                Err(err) => Err(Error::InvalidDataFraming(err.to_string())),
+            }
+        })
+    }
+
+    /// Deletes the record at specified path with provided version.
+    ///
+    /// This method returns a optional boolean value of operation result.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cocaine::{Core, Service};
+    /// use cocaine::service::Unicorn;
+    ///
+    /// let mut core = Core::new().unwrap();
+    /// let unicorn = Unicorn::new(Service::new("unicorn", &core.handle()));
+    ///
+    /// let future = unicorn.del("/cocaine/config", 42 as i64, None);
+    ///
+    /// let result: Option<bool> = core.run(future).unwrap();
+    /// ```
+    pub fn del<H>(&self, path: &str, version: &Version, headers: H) ->
+        impl Future<Item=Option<bool>, Error=Error>
+    where
+        H: IntoIterator<Item=RawHeader>
+    {
+        let (dispatch, future) = PrimitiveDispatch::pair();
+        let request = Request::new(Method::Del.into(), &(path, version))
+            .unwrap()
+            .add_headers(headers);
+
+        self.service.call(request, dispatch);
+        future.and_then(|val: Value| {
+            match rmpv::ext::deserialize_from(val) {
+                Ok(val) => Ok(Some(val)),
+                Err(err) => Err(Error::InvalidDataFraming(err.to_string())),
+            }
+        })
     }
 
     /// Obtains a value with its version stored at specified path.
