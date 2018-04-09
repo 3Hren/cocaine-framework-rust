@@ -108,9 +108,9 @@ impl Unicorn {
     /// let mut core = Core::new().unwrap();
     /// let unicorn = Unicorn::new(Service::new("unicorn", &core.handle()));
     ///
-    /// let future = unicorn.create("/cocaine/config", vec![1,2,3], None);
+    /// let future = unicorn.create("/cocaine/config", &vec![1,2,3], None);
     ///
-    /// let result: Option<bool, Version> = core.run(future).unwrap();
+    /// let result: Option<bool> = core.run(future).unwrap();
     /// ```
     pub fn create<T, H>(&self, path: &str, value: &T, headers: H) ->
         impl Future<Item=Option<bool>, Error=Error>
@@ -146,9 +146,9 @@ impl Unicorn {
     /// let mut core = Core::new().unwrap();
     /// let unicorn = Unicorn::new(Service::new("unicorn", &core.handle()));
     ///
-    /// let future = unicorn.put("/cocaine/config", vec![1,2,3], None);
+    /// let future = unicorn.put("/cocaine/config", &vec![1,2,3], None);
     ///
-    /// let result: Option<bool, Version> = core.run(future).unwrap();
+    /// let result: Option<(bool, i64)> = core.run(future).unwrap();
     /// ```
     pub fn put<T, H>(&self, path: &str, value: &T, headers: H) ->
         impl Future<Item=Option<(bool, Version)>, Error=Error>
@@ -183,7 +183,7 @@ impl Unicorn {
     /// let mut core = Core::new().unwrap();
     /// let unicorn = Unicorn::new(Service::new("unicorn", &core.handle()));
     ///
-    /// let future = unicorn.del("/cocaine/config", 42 as i64, None);
+    /// let future = unicorn.del("/cocaine/config", &(42 as i64), None);
     ///
     /// let result: Option<bool> = core.run(future).unwrap();
     /// ```
