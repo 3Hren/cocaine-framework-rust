@@ -5,7 +5,7 @@ use futures::sync::mpsc;
 
 use rmpv::{self, Value};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use {Error, Request, Sender, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
@@ -266,7 +266,7 @@ impl Unicorn {
         let request = Request::new(Method::Subscribe.into(), &[path]).unwrap()
             .add_headers(headers);
         self.service.call(request, dispatch).and_then(|sender| {
-            let handle = Close { sender: sender };
+            let handle = Close { sender };
             let stream = rx.map_err(|()| Error::Canceled)
                 .then(Flatten::flatten)
                 .and_then(|(val, version): (Value, Version)| {
@@ -299,7 +299,7 @@ impl Unicorn {
             .add_headers(headers);
 
         self.service.call(request, dispatch).and_then(|sender| {
-            let handle = Close { sender: sender };
+            let handle = Close { sender };
             let stream = rx.map_err(|()| Error::Canceled)
                 .then(Flatten::flatten);
             let stream = Box::new(stream) as Box<Stream<Item=(Version, Vec<String>), Error=Error> + Send>;
