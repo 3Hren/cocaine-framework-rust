@@ -5,10 +5,7 @@ use futures::sync::mpsc;
 
 use rmpv::{self, Value};
 
-use serde::{
-    Serialize,
-    Deserialize
-};
+use serde::{Serialize, Deserialize};
 
 use {Error, Request, Sender, Service};
 use dispatch::{PrimitiveDispatch, StreamingDispatch};
@@ -115,7 +112,7 @@ impl Unicorn {
     pub fn create<T, H>(&self, path: &str, value: &T, headers: H) ->
         impl Future<Item=Option<bool>, Error=Error>
     where
-        T: for<'de> Deserialize<'de> + Serialize,
+        T: Serialize,
         H: IntoIterator<Item=RawHeader>
     {
         let (dispatch, future) = PrimitiveDispatch::pair();
@@ -153,7 +150,7 @@ impl Unicorn {
     pub fn put<T, H>(&self, path: &str, value: &T, headers: H) ->
         impl Future<Item=Option<(bool, Version)>, Error=Error>
     where
-        T: for<'de> Deserialize<'de> + Serialize,
+        T: Serialize,
         H: IntoIterator<Item=RawHeader>
     {
         let (dispatch, future) = PrimitiveDispatch::pair();
