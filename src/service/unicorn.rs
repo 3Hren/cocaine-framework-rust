@@ -107,10 +107,10 @@ impl Unicorn {
     ///
     /// let future = unicorn.create("/cocaine/config", &vec![1,2,3], None);
     ///
-    /// let result: Option<bool> = core.run(future).unwrap();
+    /// let result: bool = core.run(future).unwrap();
     /// ```
     pub fn create<T, H>(&self, path: &str, value: &T, headers: H) ->
-        impl Future<Item=Option<bool>, Error=Error>
+        impl Future<Item=bool, Error=Error>
     where
         T: Serialize,
         H: IntoIterator<Item=RawHeader>
@@ -145,10 +145,10 @@ impl Unicorn {
     ///
     /// let future = unicorn.put("/cocaine/config", &vec![1,2,3], None);
     ///
-    /// let result: Option<(bool, i64)> = core.run(future).unwrap();
+    /// let result: (bool, i64) = core.run(future).unwrap();
     /// ```
     pub fn put<T, H>(&self, path: &str, value: &T, headers: H) ->
-        impl Future<Item=Option<(bool, Version)>, Error=Error>
+        impl Future<Item=(bool, Version), Error=Error>
     where
         T: Serialize,
         H: IntoIterator<Item=RawHeader>
@@ -161,7 +161,7 @@ impl Unicorn {
         self.service.call(request, dispatch);
         future.and_then(|(val, version): (Value, Version)| {
             match rmpv::ext::deserialize_from(val) {
-                Ok(val) => Ok(Some((val, version))),
+                Ok(val) => Ok((val, version)),
                 Err(err) => Err(Error::InvalidDataFraming(err.to_string())),
             }
         })
@@ -182,10 +182,10 @@ impl Unicorn {
     ///
     /// let future = unicorn.del("/cocaine/config", &(42 as i64), None);
     ///
-    /// let result: Option<bool> = core.run(future).unwrap();
+    /// let result: bool = core.run(future).unwrap();
     /// ```
     pub fn del<H>(&self, path: &str, version: &Version, headers: H) ->
-        impl Future<Item=Option<bool>, Error=Error>
+        impl Future<Item=bool, Error=Error>
     where
         H: IntoIterator<Item=RawHeader>
     {
@@ -197,7 +197,7 @@ impl Unicorn {
         self.service.call(request, dispatch);
         future.and_then(|val: Value| {
             match rmpv::ext::deserialize_from(val) {
-                Ok(val) => Ok(Some(val)),
+                Ok(val) => Ok(val),
                 Err(err) => Err(Error::InvalidDataFraming(err.to_string())),
             }
         })
