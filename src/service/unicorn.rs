@@ -121,8 +121,8 @@ impl Unicorn {
             .add_headers(headers);
 
         self.service.call(request, dispatch);
-        future.and_then(|done: (Value)| {
-            match rmpv::ext::deserialize_from(done) {
+        future.and_then(|val: Value| {
+            match rmpv::ext::deserialize_from(val) {
                 Ok(val)  => Ok(val),
                 Err(err) => Err(Error::InvalidDataFraming(err.to_string())),
             }
