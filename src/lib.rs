@@ -93,8 +93,6 @@
 //! [service]: struct.Service.html
 //! [dispatch]: trait.Dispatch.html
 
-#![feature(conservative_impl_trait)]
-
 #![warn(missing_debug_implementations, missing_docs)]
 
 #[macro_use]
