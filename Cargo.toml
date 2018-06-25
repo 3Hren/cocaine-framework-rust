@@ -1,6 +1,6 @@
 [package]
 name = "cocaine"
-version = "0.9.1"
+version = "0.9.2"
 authors = ["Evgeny Safronov <division494@gmail.com>"]
 description = "Cocaine Framework Rust"
 documentation = "https://docs.rs/cocaine"
